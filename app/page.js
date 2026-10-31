@@ -84,13 +84,15 @@ function createEngine(w, h) {
     // Game over only after 5 misses in a row (catching resets the streak)
     missStreak: 0,
     missLimit: 5,
-    // Gentle start — pots come one-by-one, then ease up
+    // Gentle start — speed & density ramp continuously with score
     fallSpeed: 85,
-    spawnTimer: 1.6,
+    spawnTimer: 1.8,
     shake: 0,
     catchStreak: 0,
     sinceGolden: 0,
-    achievementUnlocked: false,
+    achievementUnlocked: false, // Krishna Paglu @ 50 pots
+    consciousUnlocked: false, // Krishna Conscious @ 500 score
+    hasLaddu: false,
     achievementFlash: 0,
     stars: [],
     pots: [],
@@ -99,7 +101,7 @@ function createEngine(w, h) {
     // Putana boss encounter
     putana: null,
     chakras: [],
-    putanaCooldown: 18,
+    putanaCooldown: 20,
     putanaKills: 0,
     butterflies: Array.from({ length: 4 }, () => createButterfly(w, h)),
     bees: Array.from({ length: 7 }, () => {
@@ -160,7 +162,9 @@ function spawnPutana(e) {
     bobPhase: Math.random() * 10,
     hitFlash: 0,
   };
-  e.putanaCooldown = 22 + Math.random() * 10;
+  // Faster game → Putana returns sooner
+  const haste = Math.min(1, (e.fallSpeed - 85) / 220);
+  e.putanaCooldown = Math.max(7, 20 - haste * 12) + Math.random() * (6 - haste * 3);
   e.floatText.push({
     x: e.w * 0.5,
     y: e.h * 0.22,
@@ -168,6 +172,31 @@ function spawnPutana(e) {
     color: '#f472b6',
     life: 1.6,
   });
+}
+
+/** Continuous difficulty from score (and light time pressure). */
+function difficulty(e) {
+  const fromScore = e.score / 80;
+  const fromCaught = e.caught / 40;
+  const fromTime = e.time / 90;
+  return Math.max(0, fromScore + fromCaught * 0.35 + fromTime * 0.25);
+}
+
+function maxPotsFor(e) {
+  const d = difficulty(e);
+  if (d < 0.8) return 1;
+  if (d < 1.8) return 2;
+  if (d < 3.2) return 3;
+  if (d < 5) return 4;
+  return 5;
+}
+
+function updateFallSpeed(e, dt) {
+  // Continuous ramp toward a soft cap
+  const target = Math.min(340, 85 + difficulty(e) * 42);
+  if (e.fallSpeed < target) {
+    e.fallSpeed = Math.min(target, e.fallSpeed + 22 * dt);
+  }
 }
 
 function throwChakra(e) {
@@ -885,6 +914,9 @@ export default function Page() {
   const [best, setBest] = useState(0);
   const [showPaglu, setShowPaglu] = useState(false);
   const [pagluBurst, setPagluBurst] = useState(false);
+  const [showConscious, setShowConscious] = useState(false);
+  const [consciousBurst, setConsciousBurst] = useState(false);
+  const [hasLaddu, setHasLaddu] = useState(false);
   const [putanaActive, setPutanaActive] = useState(false);
   const [assetsReady, setAssetsReady] = useState(false);
 
@@ -1020,6 +1052,9 @@ export default function Page() {
     setCaught(0);
     setShowPaglu(false);
     setPagluBurst(false);
+    setShowConscious(false);
+    setConsciousBurst(false);
+    setHasLaddu(false);
     setPutanaActive(false);
     setPhase(PHASE.PLAYING);
     const mantra = mantraRef.current;
@@ -1151,19 +1186,23 @@ export default function Page() {
           e.player.y = e.player.baseY;
         }
 
+        // Continuous speed ramp every frame
+        updateFallSpeed(e, dt);
+
         e.spawnTimer -= dt;
         if (e.spawnTimer <= 0) {
-          // Keep early game to roughly one pot at a time on screen
-          if (e.caught < 8 && e.pots.length >= 1) {
-            e.spawnTimer = 0.35;
-          } else if (e.caught < 20 && e.pots.length >= 2) {
-            e.spawnTimer = 0.25;
+          const cap = maxPotsFor(e);
+          if (e.pots.length >= cap) {
+            e.spawnTimer = 0.2;
           } else {
             spawnPot(e);
-            // Difficulty curve: slow → bit faster → bit faster
-            // caught 0:  ~2.1s | 10: ~1.7s | 25: ~1.2s | 50: ~0.85s | 80+: ~0.55s
-            const baseGap = Math.max(0.55, 2.15 - e.caught * 0.022);
-            e.spawnTimer = baseGap * (0.9 + Math.random() * 0.25);
+            // Sometimes spawn a second pot when difficulty is high
+            if (cap >= 3 && e.pots.length < cap && Math.random() < 0.22 + difficulty(e) * 0.04) {
+              spawnPot(e);
+            }
+            const d = difficulty(e);
+            const baseGap = Math.max(0.32, 2.0 - d * 0.28);
+            e.spawnTimer = baseGap * (0.85 + Math.random() * 0.3);
           }
         }
 
@@ -1187,10 +1226,6 @@ export default function Page() {
             e.caught += 1;
             e.catchStreak += 1;
             e.missStreak = 0; // catching resets consecutive misses
-            // Smooth fall-speed steps every 10 pots (not a big jump)
-            if (e.caught % 10 === 0) {
-              e.fallSpeed = Math.min(280, e.fallSpeed + 14);
-            }
 
             const burstColor =
               pot.type === 'golden' ? '#ffd54a' : pot.type === 'white' ? '#f5f5f5' : '#ffe566';
@@ -1219,6 +1254,32 @@ export default function Page() {
               });
             }
 
+            // 500 score → Krishna Conscious + one sacred laddu
+            if (!e.consciousUnlocked && e.score >= 500) {
+              e.consciousUnlocked = true;
+              e.hasLaddu = true;
+              e.achievementFlash = 6;
+              spawnCelebrationStars(e, 60);
+              setShowConscious(true);
+              setConsciousBurst(true);
+              setHasLaddu(true);
+              setTimeout(() => setConsciousBurst(false), 6000);
+              e.floatText.push({
+                x: e.w * 0.5,
+                y: e.h * 0.32,
+                text: 'KRISHNA CONSCIOUS!',
+                color: '#a7f3d0',
+                life: 2.4,
+              });
+              e.floatText.push({
+                x: e.w * 0.5,
+                y: e.h * 0.38,
+                text: '+1 LADDU 🍡',
+                color: '#fdba74',
+                life: 2.2,
+              });
+            }
+
             e.pots.splice(i, 1);
             setScore(e.score);
             setCaught(e.caught);
@@ -1243,9 +1304,14 @@ export default function Page() {
 
         // ---- Putana encounter ----
         e.putanaCooldown -= dt;
-        if (!e.putana && e.caught >= 10 && e.putanaCooldown <= 0 && Math.random() < 0.012) {
-          spawnPutana(e);
-          setPutanaActive(true);
+        // As speed rises, Putana appears more often
+        {
+          const haste = Math.min(1, (e.fallSpeed - 85) / 220);
+          const chance = 0.01 + haste * 0.035;
+          if (!e.putana && e.caught >= 8 && e.putanaCooldown <= 0 && Math.random() < chance) {
+            spawnPutana(e);
+            setPutanaActive(true);
+          }
         }
 
         if (e.putana) {
@@ -1464,6 +1530,7 @@ export default function Page() {
   });
 
   const pagluBig = showPaglu && (pagluBurst || (caught >= 50 && caught < 56));
+  const consciousBig = showConscious && (consciousBurst || (score >= 500 && score < 520));
 
   return (
     <main className="fixed inset-0 h-[100dvh] w-[100vw] overflow-hidden touch-none select-none bg-[#1a0b2e]">
@@ -1590,22 +1657,45 @@ export default function Page() {
               </p>
             </div>
 
-            {caught >= 50 && (
-              <div
-                className={`rounded-full border border-amber-300/50 bg-gradient-to-r from-amber-400/90 to-orange-500/90 px-3 py-1 text-center transition-all duration-500 ${
-                  pagluBig
-                    ? 'scale-125 px-4 py-2 shadow-[0_0_40px_rgba(251,191,36,0.85)] ring-2 ring-amber-200/80'
-                    : 'scale-100 shadow-[0_0_24px_rgba(251,191,36,0.45)]'
-                }`}
-              >
-                <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-stone-900/70">
-                  Achievement
-                </p>
-                <p className="text-xs font-extrabold tracking-wide text-stone-900 sm:text-sm">
-                  🦚 Krishna Paglu
-                </p>
-              </div>
-            )}
+            <div className="flex flex-col items-center gap-1.5">
+              {caught >= 50 && (
+                <div
+                  className={`rounded-full border border-amber-300/50 bg-gradient-to-r from-amber-400/90 to-orange-500/90 px-3 py-1 text-center transition-all duration-500 ${
+                    pagluBig
+                      ? 'scale-125 px-4 py-2 shadow-[0_0_40px_rgba(251,191,36,0.85)] ring-2 ring-amber-200/80'
+                      : 'scale-100 shadow-[0_0_24px_rgba(251,191,36,0.45)]'
+                  }`}
+                >
+                  <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-stone-900/70">
+                    Badge
+                  </p>
+                  <p className="text-xs font-extrabold tracking-wide text-stone-900 sm:text-sm">
+                    🦚 Krishna Paglu
+                  </p>
+                </div>
+              )}
+              {showConscious && (
+                <div
+                  className={`rounded-full border border-emerald-300/50 bg-gradient-to-r from-emerald-300/95 to-teal-400/95 px-3 py-1 text-center transition-all duration-500 ${
+                    consciousBig
+                      ? 'scale-125 px-4 py-2 shadow-[0_0_40px_rgba(52,211,153,0.85)] ring-2 ring-emerald-100/80'
+                      : 'scale-100 shadow-[0_0_24px_rgba(52,211,153,0.45)]'
+                  }`}
+                >
+                  <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-stone-900/70">
+                    Badge
+                  </p>
+                  <p className="text-xs font-extrabold tracking-wide text-stone-900 sm:text-sm">
+                    🌿 Krishna Conscious
+                  </p>
+                </div>
+              )}
+              {hasLaddu && (
+                <div className="rounded-full border border-orange-200/40 bg-orange-400/25 px-3 py-1 text-xs font-extrabold text-orange-100 shadow-md backdrop-blur-sm">
+                  🍡 Sacred Laddu ×1
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="rounded-2xl border border-white/15 bg-white/10 px-3 py-2 text-right shadow-lg backdrop-blur-md">
@@ -1615,13 +1705,13 @@ export default function Page() {
         </div>
       )}
 
-      {/* Big achievement toast + screen stars */}
+      {/* Achievement toasts */}
       {phase === PHASE.PLAYING && pagluBig && (
         <div className="pointer-events-none absolute inset-0 z-25 overflow-hidden">
-          <div className="absolute inset-0 bg-amber-300/10 animate-pulse" />
-          {[...Array(18)].map((_, i) => (
+          <div className="absolute inset-0 animate-pulse bg-amber-300/10" />
+          {[...Array(14)].map((_, i) => (
             <span
-              key={i}
+              key={`p-${i}`}
               className="absolute text-amber-300"
               style={{
                 left: `${8 + ((i * 17) % 84)}%`,
@@ -1629,7 +1719,6 @@ export default function Page() {
                 fontSize: `${12 + (i % 5) * 6}px`,
                 animation: `starTwinkle ${1 + (i % 4) * 0.35}s ease-in-out infinite`,
                 animationDelay: `${(i % 7) * 0.12}s`,
-                filter: 'drop-shadow(0 0 6px rgba(251,191,36,0.9))',
               }}
             >
               ✦
@@ -1637,9 +1726,7 @@ export default function Page() {
           ))}
           <div className="animate-fade-up absolute inset-x-0 top-[22%] flex justify-center px-4">
             <div className="rounded-3xl border-2 border-amber-200/70 bg-black/45 px-6 py-5 text-center shadow-[0_0_50px_rgba(251,191,36,0.55)] backdrop-blur-md ring-4 ring-amber-400/30">
-              <p className="text-xs font-bold uppercase tracking-[0.3em] text-amber-200">
-                ✨ Unlocked ✨
-              </p>
+              <p className="text-xs font-bold uppercase tracking-[0.3em] text-amber-200">✨ Badge Unlocked</p>
               <p className="bg-gradient-to-r from-amber-100 via-yellow-300 to-orange-400 bg-clip-text text-3xl font-extrabold text-transparent sm:text-4xl">
                 Krishna Paglu
               </p>
@@ -1649,62 +1736,103 @@ export default function Page() {
         </div>
       )}
 
-      {/* MENU */}
+      {phase === PHASE.PLAYING && consciousBig && (
+        <div className="pointer-events-none absolute inset-0 z-25 overflow-hidden">
+          <div className="absolute inset-0 animate-pulse bg-emerald-300/15" />
+          {[...Array(16)].map((_, i) => (
+            <span
+              key={`c-${i}`}
+              className="absolute text-emerald-200"
+              style={{
+                left: `${6 + ((i * 19) % 88)}%`,
+                top: `${8 + ((i * 23) % 72)}%`,
+                fontSize: `${14 + (i % 4) * 5}px`,
+                animation: `starTwinkle ${0.9 + (i % 3) * 0.4}s ease-in-out infinite`,
+                animationDelay: `${(i % 6) * 0.1}s`,
+              }}
+            >
+              ✦
+            </span>
+          ))}
+          <div className="animate-fade-up absolute inset-x-0 top-[20%] flex justify-center px-4">
+            <div className="rounded-3xl border-2 border-emerald-200/70 bg-black/50 px-6 py-5 text-center shadow-[0_0_50px_rgba(52,211,153,0.5)] backdrop-blur-md ring-4 ring-emerald-400/30">
+              <p className="text-xs font-bold uppercase tracking-[0.3em] text-emerald-200">✨ Awakened</p>
+              <p className="bg-gradient-to-r from-emerald-100 via-teal-200 to-cyan-300 bg-clip-text text-3xl font-extrabold text-transparent sm:text-4xl">
+                Krishna Conscious
+              </p>
+              <p className="mt-2 text-sm text-white/85">Score 500 reached — sacred laddu granted!</p>
+              <p className="mt-3 text-3xl">🍡</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MENU — game title card */}
       {phase === PHASE.MENU && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#1a0b2e]/45 px-5 backdrop-blur-md">
-          <div className="animate-fade-up w-full max-w-md rounded-3xl border border-white/25 bg-gradient-to-br from-white/20 to-white/5 p-7 text-center shadow-[0_25px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:p-8">
-            <div className="mx-auto mb-3 flex h-36 w-36 items-center justify-center rounded-full border border-amber-200/30 bg-gradient-to-b from-amber-200/20 to-orange-400/10 shadow-[0_0_40px_rgba(251,191,36,0.25)] sm:h-40 sm:w-40">
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-gradient-to-b from-[#1a0b2e]/30 via-[#1a0b2e]/55 to-[#1a0b2e]/80 px-4 backdrop-blur-[6px]">
+          <div className="animate-fade-up relative w-full max-w-lg overflow-hidden rounded-[28px] border border-amber-200/25 bg-gradient-to-b from-white/18 via-white/8 to-amber-950/30 p-6 text-center shadow-[0_30px_80px_rgba(0,0,0,0.55)] backdrop-blur-xl sm:p-8">
+            <div className="pointer-events-none absolute -left-10 -top-10 h-40 w-40 rounded-full bg-amber-400/20 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-12 -right-8 h-44 w-44 rounded-full bg-fuchsia-500/15 blur-3xl" />
+
+            <p className="relative mb-3 inline-flex items-center gap-2 rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.28em] text-amber-200">
+              Magical Vrindavan
+            </p>
+
+            <div className="relative mx-auto mb-2 flex h-40 w-40 items-center justify-center sm:h-44 sm:w-44">
+              <div className="absolute inset-0 rounded-full bg-gradient-to-b from-amber-300/25 to-orange-500/10 blur-md" />
+              <div className="absolute inset-2 rounded-full border border-white/20 bg-white/5" />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/krishna-sprite.png?v=2"
                 alt="Little Krishna"
-                className="h-[92%] w-[92%] object-contain drop-shadow-lg"
+                className="relative z-10 h-[88%] w-[88%] object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.45)]"
                 draggable={false}
               />
             </div>
-            <div className="mb-4 flex items-end justify-center gap-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/pots/pot-1.png?v=2" alt="" className="h-12 w-12 object-contain" />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/pots/pot-2.png?v=2" alt="" className="h-14 w-14 object-contain" />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/pots/pot-1-white.png?v=2" alt="" className="h-11 w-11 object-contain opacity-90" />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/pots/pot-1-gold.png?v=2" alt="" className="h-12 w-12 object-contain drop-shadow-[0_0_10px_rgba(255,200,60,0.7)]" />
-            </div>
-            <p className="mb-2 text-xs font-bold uppercase tracking-[0.35em] text-amber-300">
-              Magical Vrindavan
-            </p>
-            <h1 className="mb-2 bg-gradient-to-r from-amber-100 via-yellow-300 to-orange-400 bg-clip-text text-4xl font-extrabold tracking-wide text-transparent sm:text-5xl">
+
+            <h1 className="relative mb-1 bg-gradient-to-r from-amber-100 via-yellow-300 to-orange-400 bg-clip-text text-5xl font-black tracking-wide text-transparent sm:text-6xl">
               Makhan Catch
             </h1>
-            <p className="mb-5 text-sm leading-relaxed text-white/75">
-              Catch pots, jump for high ones, and defeat Putana with the Sudarshan Chakra.
-              Miss 5 in a row and it&apos;s over. Reach 50 for Krishna Paglu!
+            <p className="relative mb-5 text-sm text-white/70">
+              Catch · Jump · Defeat Putana
             </p>
-            <ul className="mb-6 space-y-2 text-left text-sm text-white/65">
-              <li className="flex gap-2 border-b border-white/10 pb-2">
-                <span className="text-amber-300">✦</span>
-                Putana appears mid-game — throw Chakra (C / button) or lose 10 pots
-              </li>
-              <li className="flex gap-2 border-b border-white/10 pb-2">
-                <span className="text-amber-300">✦</span>
-                White +3 · Golden +10 · Defeat Putana for bonus
-              </li>
-              <li className="flex gap-2">
-                <span className="text-amber-300">✦</span>
-                Mobile: ← → buttons · Desktop: arrows / click-hold sides
-              </li>
-            </ul>
+
+            <div className="relative mb-5 grid grid-cols-2 gap-2 text-left sm:grid-cols-4">
+              {[
+                { img: '/pots/pot-1.png?v=2', label: 'Clay', pts: '+1' },
+                { img: '/pots/pot-1-white.png?v=2', label: 'White', pts: '+3' },
+                { img: '/pots/pot-1-gold.png?v=2', label: 'Golden', pts: '+10' },
+                { img: '/boss/putana.png?v=1', label: 'Putana', pts: 'Chakra' },
+              ].map((card) => (
+                <div
+                  key={card.label}
+                  className="rounded-2xl border border-white/15 bg-black/25 p-2.5 text-center backdrop-blur-sm"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={card.img} alt="" className="mx-auto mb-1 h-10 w-10 object-contain" />
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-white/55">{card.label}</p>
+                  <p className="text-xs font-extrabold text-amber-200">{card.pts}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="relative mb-5 space-y-2 rounded-2xl border border-white/10 bg-black/20 p-3 text-left text-xs text-white/70 sm:text-sm">
+              <p>⚡ Speed &amp; pot count rise as you score</p>
+              <p>🦚 50 pots → <span className="font-bold text-amber-200">Krishna Paglu</span></p>
+              <p>🌿 500 score → <span className="font-bold text-emerald-200">Krishna Conscious</span> + 🍡 laddu</p>
+              <p>💀 Miss 5 in a row = game over</p>
+            </div>
+
             <button
               type="button"
               onClick={startGame}
-              className="w-full rounded-2xl bg-gradient-to-r from-amber-300 via-yellow-400 to-orange-400 px-6 py-3.5 text-sm font-extrabold uppercase tracking-[0.15em] text-stone-900 shadow-[0_12px_30px_rgba(251,191,36,0.4)] transition hover:scale-[1.03] active:scale-95"
+              className="relative w-full rounded-2xl bg-gradient-to-r from-amber-300 via-yellow-400 to-orange-400 px-6 py-4 text-base font-black uppercase tracking-[0.2em] text-stone-900 shadow-[0_14px_40px_rgba(251,191,36,0.45)] transition hover:scale-[1.03] active:scale-95"
             >
-              Begin
+              ▶ Play Now
             </button>
+
             {best > 0 && (
-              <p className="mt-4 text-xs uppercase tracking-[0.2em] text-white/50">
+              <p className="relative mt-4 text-xs uppercase tracking-[0.22em] text-white/50">
                 Best · {best}
               </p>
             )}
@@ -1735,11 +1863,23 @@ export default function Page() {
             <p className="mb-2 text-sm text-white/70">
               {caught} pots caught · 5 misses in a row
             </p>
-            {caught >= 50 && (
-              <p className="mb-4 inline-block rounded-full border border-amber-300/40 bg-amber-400/20 px-3 py-1 text-xs font-bold text-amber-200">
-                🦚 Krishna Paglu earned
-              </p>
-            )}
+            <div className="mb-4 flex flex-wrap justify-center gap-2">
+              {caught >= 50 && (
+                <p className="inline-block rounded-full border border-amber-300/40 bg-amber-400/20 px-3 py-1 text-xs font-bold text-amber-200">
+                  🦚 Krishna Paglu
+                </p>
+              )}
+              {showConscious && (
+                <p className="inline-block rounded-full border border-emerald-300/40 bg-emerald-400/20 px-3 py-1 text-xs font-bold text-emerald-200">
+                  🌿 Krishna Conscious
+                </p>
+              )}
+              {hasLaddu && (
+                <p className="inline-block rounded-full border border-orange-300/40 bg-orange-400/20 px-3 py-1 text-xs font-bold text-orange-100">
+                  🍡 Laddu ×1
+                </p>
+              )}
+            </div>
             {best > 0 && (
               <p className="mb-5 text-xs uppercase tracking-[0.2em] text-white/50">
                 Best · {best}
@@ -1748,9 +1888,9 @@ export default function Page() {
             <button
               type="button"
               onClick={startGame}
-              className="mb-3 w-full rounded-2xl bg-gradient-to-r from-amber-300 via-yellow-400 to-orange-400 px-6 py-3.5 text-sm font-extrabold uppercase tracking-[0.15em] text-stone-900 shadow-[0_12px_30px_rgba(251,191,36,0.4)] transition hover:scale-[1.03] active:scale-95"
+              className="mb-3 w-full rounded-2xl bg-gradient-to-r from-amber-300 via-yellow-400 to-orange-400 px-6 py-4 text-base font-black uppercase tracking-[0.18em] text-stone-900 shadow-[0_12px_30px_rgba(251,191,36,0.4)] transition hover:scale-[1.03] active:scale-95"
             >
-              Play Again
+              ▶ Play Again
             </button>
             <button
               type="button"

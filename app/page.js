@@ -10,7 +10,25 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 const PHASE = { MENU: 'MENU', PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER' };
 
-const POT_POINTS = { normal: 1, white: 3, golden: 10 };
+const POT_POINTS = { normal: 1, white: 3, golden: 10, cursed: 15 };
+
+const HEAT_STAGES = [
+  { id: 'calm', label: 'Calm Meadow', minD: 0, skyBoost: 0 },
+  { id: 'busy', label: 'Busy Leela', minD: 1.15, skyBoost: 0.08 },
+  { id: 'chaos', label: 'Makhan Chaos', minD: 2.4, skyBoost: 0.16 },
+  { id: 'divine', label: 'Divine Trial', minD: 3.8, skyBoost: 0.28 },
+];
+
+function heatStage(e) {
+  const d = difficulty(e);
+  let stage = HEAT_STAGES[0];
+  for (const h of HEAT_STAGES) if (d >= h.minD) stage = h;
+  return stage;
+}
+
+function comboMultiplier(combo) {
+  return Math.min(5, 1 + Math.floor(Math.max(0, combo) / 5));
+}
 
 /** Motichur laddu — orange boondi sphere (not dango emoji). */
 function MotichurLaddu({ size = 40, className = '' }) {
@@ -145,6 +163,8 @@ function createEngine(w, h) {
     spawnTimer: 1.45,
     shake: 0,
     catchStreak: 0,
+    combo: 0,
+    bestCombo: 0,
     sinceGolden: 0,
     achievementUnlocked: false, // Krishna Paglu @ 50 pots
     consciousUnlocked: false, // Krishna Conscious @ 500 score
@@ -154,6 +174,15 @@ function createEngine(w, h) {
     pots: [],
     particles: [],
     floatText: [],
+    powerups: [], // falling orbs: slow | magnet | flute | aura
+    buffs: { slow: 0, magnet: 0, aura: 0 },
+    fluteCharges: 0,
+    flutePull: 0, // active flute charm timer
+    monkey: null,
+    monkeyCooldown: 12,
+    event: null, // yashoda call set-piece
+    eventCooldown: 22,
+    heatId: 'calm',
     // Putana boss encounter
     putana: null,
     chakras: [],
@@ -198,7 +227,7 @@ function createEngine(w, h) {
       jumpVy: 0,
       onGround: true,
     },
-    input: { left: false, right: false, jump: false, chakra: false },
+    input: { left: false, right: false, jump: false, chakra: false, flute: false },
   };
 }
 
@@ -209,29 +238,112 @@ function spawnPutana(e) {
   if (e.putana || e.caught < PUTANA_MIN_CAUGHT) return false;
   const size = Math.min(88, Math.max(64, e.w * 0.12));
   const margin = size + 24;
+  const d = difficulty(e);
+  // Variants unlock with heat — keeps bosses interesting
+  let variant = 'fall';
+  const roll = Math.random();
+  if (d >= 3.2 && roll < 0.35) variant = 'mirror';
+  else if (d >= 1.8 && roll < 0.55) variant = 'zigzag';
+  else if (d >= 2.6 && roll < 0.75) variant = 'swift';
+
   e.putana = {
     x: margin + Math.random() * (e.w - margin * 2),
     y: -size,
     size,
     facing: Math.random() < 0.5 ? 1 : -1,
     state: 'fall', // fall | dying
-    // Fall like pots — scales up with current speed
-    vy: Math.max(95, e.fallSpeed * 0.92),
+    variant,
+    mirror: null, // decoy for mirror variant
+    vy: Math.max(95, e.fallSpeed * (variant === 'swift' ? 1.25 : 0.92)),
     wobble: Math.random() * Math.PI * 2,
     bobPhase: Math.random() * 10,
     hitFlash: 0,
+    zigAmp: 55 + Math.random() * 40,
   };
-  // Faster game → Putana returns sooner
+  if (variant === 'mirror') {
+    e.putana.mirror = {
+      x: e.w - e.putana.x,
+      phase: Math.random() * Math.PI * 2,
+    };
+  }
   const haste = Math.min(1, (e.fallSpeed - 95) / 280);
   e.putanaCooldown = Math.max(5, 14 - haste * 9) + Math.random() * (4 - haste * 2);
+  const label =
+    variant === 'zigzag'
+      ? 'ZIGZAG PUTANA!'
+      : variant === 'swift'
+        ? 'SWIFT PUTANA!'
+        : variant === 'mirror'
+          ? 'MIRROR PUTANA!'
+          : 'PUTANA FALLING!';
   e.floatText.push({
     x: e.w * 0.5,
     y: e.h * 0.22,
-    text: 'PUTANA FALLING!',
+    text: label,
     color: '#f472b6',
     life: 1.6,
   });
   return true;
+}
+
+function spawnPowerup(e, x, y, forceKind = null) {
+  const kinds = ['slow', 'magnet', 'flute', 'aura'];
+  const kind = forceKind || kinds[Math.floor(Math.random() * kinds.length)];
+  e.powerups.push({
+    x,
+    y,
+    kind,
+    r: 16,
+    vy: 70 + Math.random() * 40,
+    wobble: Math.random() * Math.PI * 2,
+    life: 8,
+  });
+}
+
+function spawnMonkey(e) {
+  if (e.monkey || e.pots.length === 0) return false;
+  const fromLeft = Math.random() < 0.5;
+  e.monkey = {
+    x: fromLeft ? -40 : e.w + 40,
+    y: e.h * 0.55,
+    vx: fromLeft ? 220 : -220,
+    facing: fromLeft ? 1 : -1,
+    state: 'run', // run | steal | flee
+    target: null,
+    bob: Math.random() * 10,
+  };
+  e.floatText.push({
+    x: e.w * 0.5,
+    y: e.h * 0.26,
+    text: 'BUTTER THIEF!',
+    color: '#fdba74',
+    life: 1.4,
+  });
+  return true;
+}
+
+function startYashodaEvent(e) {
+  if (e.event) return false;
+  e.event = { kind: 'yashoda', phase: 'warn', t: 1.4 };
+  e.floatText.push({
+    x: e.w * 0.5,
+    y: e.h * 0.28,
+    text: 'YASHODA CALLS!',
+    color: '#f9a8d4',
+    life: 1.6,
+  });
+  return true;
+}
+
+function resetCombo(e) {
+  e.combo = 0;
+  e.catchStreak = 0;
+}
+
+function addCombo(e) {
+  e.combo += 1;
+  e.catchStreak += 1;
+  if (e.combo > e.bestCombo) e.bestCombo = e.combo;
 }
 
 /** Badge unlocks from current score/caught — safe to call after any reward. */
@@ -332,6 +444,11 @@ function spawnCelebrationStars(e, n = 36) {
 }
 
 function pickPotType(e) {
+  const d = difficulty(e);
+  // Cursed makhan — high risk/reward after the meadow warms up
+  if (d >= 1.0 && Math.random() < 0.1 + Math.min(0.12, d * 0.025)) {
+    return 'cursed';
+  }
   // Golden: when doing well (catch streak ≥ 5) and not spawned recently
   if (e.catchStreak >= 5 && e.sinceGolden > 8 && Math.random() < 0.28) {
     return 'golden';
@@ -341,16 +458,21 @@ function pickPotType(e) {
   return 'normal';
 }
 
-function spawnPot(e) {
-  const type = pickPotType(e);
+function spawnPot(e, overrides = {}) {
+  const type = overrides.type || pickPotType(e);
   if (type === 'golden') e.sinceGolden = 0;
   else e.sinceGolden += 1;
 
-  const size = type === 'golden' ? 46 + Math.random() * 10 : 38 + Math.random() * 14;
-  const variant = Math.random() < 0.5 ? 1 : 2; // which of the two main pots
+  const size =
+    type === 'golden'
+      ? 46 + Math.random() * 10
+      : type === 'cursed'
+        ? 40 + Math.random() * 12
+        : 38 + Math.random() * 14;
+  const variant = Math.random() < 0.5 ? 1 : 2;
   e.pots.push({
-    x: size + 20 + Math.random() * (e.w - (size + 20) * 2),
-    y: -size,
+    x: overrides.x ?? size + 20 + Math.random() * (e.w - (size + 20) * 2),
+    y: overrides.y ?? -size,
     size,
     r: size * 0.45,
     rot: (Math.random() - 0.5) * 0.35,
@@ -401,15 +523,34 @@ function loadImage(src) {
 /* ---------- Vrindavan garden scene ---------- */
 function drawGarden(ctx, e, t, calfSprites) {
   const { w, h } = e;
+  const heat = heatStage(e);
+  const boost = heat.skyBoost || 0;
 
   const sky = ctx.createLinearGradient(0, 0, 0, h);
-  sky.addColorStop(0, '#1a0b2e');
-  sky.addColorStop(0.28, '#4a1d6a');
-  sky.addColorStop(0.52, '#b84a3a');
+  sky.addColorStop(0, boost > 0.2 ? '#2a0648' : '#1a0b2e');
+  sky.addColorStop(0.28, boost > 0.15 ? '#6b1d4a' : '#4a1d6a');
+  sky.addColorStop(0.52, boost > 0.1 ? '#d4552a' : '#b84a3a');
   sky.addColorStop(0.72, '#f0a060');
   sky.addColorStop(1, '#ffe0a8');
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, w, h);
+
+  // Heat wash — readable difficulty stage in the world itself
+  if (boost > 0) {
+    ctx.fillStyle =
+      heat.id === 'divine'
+        ? `rgba(124, 58, 237, ${0.1 + boost * 0.35})`
+        : heat.id === 'chaos'
+          ? `rgba(239, 68, 68, ${0.08 + boost * 0.25})`
+          : `rgba(251, 146, 60, ${0.06 + boost * 0.2})`;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  // Yashoda freeze veil
+  if (e.event?.kind === 'yashoda' && e.event.phase === 'freeze') {
+    ctx.fillStyle = 'rgba(251, 207, 232, 0.18)';
+    ctx.fillRect(0, 0, w, h);
+  }
 
   const haze = ctx.createRadialGradient(w * 0.5, h * 0.42, 20, w * 0.5, h * 0.5, w * 0.7);
   haze.addColorStop(0, 'rgba(255, 180, 100, 0.22)');
@@ -804,16 +945,109 @@ function drawPot(ctx, pot, t, potSprites) {
     ctx.fill();
   }
 
+  // Cursed aura — cracked violet glow
+  if (type === 'cursed') {
+    const pulse = 0.35 + Math.sin(t * 8 + pot.wobble) * 0.15;
+    const aura = ctx.createRadialGradient(0, 0, size * 0.1, 0, 0, size * 0.75);
+    aura.addColorStop(0, `rgba(192, 132, 252, ${pulse})`);
+    aura.addColorStop(1, 'rgba(88, 28, 135, 0)');
+    ctx.fillStyle = aura;
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.75, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+    if (type === 'cursed') {
+      ctx.filter = 'hue-rotate(250deg) saturate(1.6) brightness(0.85)';
+    }
     ctx.drawImage(sprite, -size * 0.5, -size * 0.55, size, size);
+    ctx.filter = 'none';
   } else {
-    // Fallback drawn pot
-    ctx.fillStyle = type === 'golden' ? '#e8b84a' : type === 'white' ? '#f5f0e8' : '#a86b3c';
+    ctx.fillStyle =
+      type === 'golden'
+        ? '#e8b84a'
+        : type === 'white'
+          ? '#f5f0e8'
+          : type === 'cursed'
+            ? '#7c3aed'
+            : '#a86b3c';
     ctx.beginPath();
     ctx.ellipse(0, 0, size * 0.35, size * 0.38, 0, 0, Math.PI * 2);
     ctx.fill();
   }
 
+  if (type === 'cursed') {
+    ctx.strokeStyle = 'rgba(233, 213, 255, 0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.12, -size * 0.2);
+    ctx.lineTo(size * 0.05, size * 0.05);
+    ctx.lineTo(-size * 0.02, size * 0.22);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function drawPowerup(ctx, p, t) {
+  const colors = {
+    slow: ['#67e8f9', '#0891b2', '⏱'],
+    magnet: ['#fbbf24', '#d97706', '◎'],
+    flute: ['#c4b5fd', '#7c3aed', '♪'],
+    aura: ['#86efac', '#16a34a', '✦'],
+  };
+  const [a, b] = colors[p.kind] || colors.slow;
+  ctx.save();
+  ctx.translate(p.x, p.y + Math.sin(t * 5 + p.wobble) * 3);
+  const g = ctx.createRadialGradient(0, 0, 2, 0, 0, 22);
+  g.addColorStop(0, a);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(0, 0, 22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = b;
+  ctx.beginPath();
+  ctx.arc(0, 0, 11, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(-3, -3, 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawMonkey(ctx, m, t) {
+  ctx.save();
+  const bob = Math.sin(t * 14 + m.bob) * 3;
+  ctx.translate(m.x, m.y + bob);
+  ctx.scale(m.facing, 1);
+  // body
+  ctx.fillStyle = '#92400e';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 16, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // head
+  ctx.beginPath();
+  ctx.arc(10, -10, 10, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fbbf24';
+  ctx.beginPath();
+  ctx.ellipse(14, -8, 5, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // tail
+  ctx.strokeStyle = '#78350f';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(-14, 0);
+  ctx.quadraticCurveTo(-28, -16 + bob, -22, -28);
+  ctx.stroke();
+  // eyes
+  ctx.fillStyle = '#111';
+  ctx.beginPath();
+  ctx.arc(12, -12, 1.6, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
@@ -877,33 +1111,60 @@ function drawSudarshan(ctx, c) {
   ctx.restore();
 }
 
-function drawPutana(ctx, putana, t, sprite) {
-  const bob = Math.sin(t * 3 + putana.bobPhase) * 6;
+function drawPutanaBody(ctx, x, y, size, facing, t, bobPhase, hitFlash, sprite, ghost) {
+  const bob = Math.sin(t * 3 + bobPhase) * 6;
   ctx.save();
-  ctx.translate(putana.x, putana.y + bob);
+  ctx.translate(x, y + bob);
+  if (ghost) ctx.globalAlpha = 0.35;
+  else if (hitFlash > 0) ctx.globalAlpha = 0.55 + 0.45 * Math.sin(t * 40);
 
-  if (putana.hitFlash > 0) ctx.globalAlpha = 0.55 + 0.45 * Math.sin(t * 40);
-
-  // Menacing aura
-  const aura = ctx.createRadialGradient(0, 0, 10, 0, 0, putana.size * 0.7);
-  aura.addColorStop(0, 'rgba(236, 72, 153, 0.25)');
+  const aura = ctx.createRadialGradient(0, 0, 10, 0, 0, size * 0.7);
+  aura.addColorStop(0, ghost ? 'rgba(167, 139, 250, 0.2)' : 'rgba(236, 72, 153, 0.25)');
   aura.addColorStop(1, 'rgba(120, 40, 160, 0)');
   ctx.fillStyle = aura;
   ctx.beginPath();
-  ctx.arc(0, 0, putana.size * 0.7, 0, Math.PI * 2);
+  ctx.arc(0, 0, size * 0.7, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.scale(putana.facing, 1);
+  ctx.scale(facing, 1);
   if (sprite && sprite.complete && sprite.naturalWidth > 0) {
-    ctx.drawImage(sprite, -putana.size * 0.5, -putana.size * 0.55, putana.size, putana.size);
+    ctx.drawImage(sprite, -size * 0.5, -size * 0.55, size, size);
   } else {
-    ctx.fillStyle = '#7dd3fc';
+    ctx.fillStyle = ghost ? '#a78bfa' : '#7dd3fc';
     ctx.beginPath();
-    ctx.arc(0, 0, putana.size * 0.3, 0, Math.PI * 2);
+    ctx.arc(0, 0, size * 0.3, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.restore();
+}
 
+function drawPutana(ctx, putana, t, sprite) {
+  if (putana.mirror) {
+    drawPutanaBody(
+      ctx,
+      putana.mirror.x,
+      putana.y,
+      putana.size * 0.92,
+      -putana.facing,
+      t,
+      putana.bobPhase + 1,
+      0,
+      sprite,
+      true
+    );
+  }
+  drawPutanaBody(
+    ctx,
+    putana.x,
+    putana.y,
+    putana.size,
+    putana.facing,
+    t,
+    putana.bobPhase,
+    putana.hitFlash,
+    sprite,
+    false
+  );
 }
 
 function drawCelebrationStars(ctx, stars) {
@@ -1018,6 +1279,12 @@ export default function Page() {
   const [consciousBurst, setConsciousBurst] = useState(false);
   const [hasLaddu, setHasLaddu] = useState(false);
   const [putanaActive, setPutanaActive] = useState(false);
+  const [combo, setCombo] = useState(0);
+  const [comboMult, setComboMult] = useState(1);
+  const [heatLabel, setHeatLabel] = useState('Calm Meadow');
+  const [fluteCharges, setFluteCharges] = useState(0);
+  const [buffs, setBuffs] = useState({ slow: 0, magnet: 0, aura: 0 });
+  const [bestCombo, setBestCombo] = useState(0);
   const [assetsReady, setAssetsReady] = useState(false);
   const pagluTimerRef = useRef(null);
   const consciousTimerRef = useRef(null);
@@ -1042,6 +1309,7 @@ export default function Page() {
   useEffect(() => {
     try {
       setBest(Number(localStorage.getItem('makhan-vrindavan-best') || 0));
+      setBestCombo(Number(localStorage.getItem('makhan-vrindavan-best-combo') || 0));
     } catch {
       /* ignore */
     }
@@ -1175,6 +1443,11 @@ export default function Page() {
     setConsciousBurst(false);
     setHasLaddu(false);
     setPutanaActive(false);
+    setCombo(0);
+    setComboMult(1);
+    setHeatLabel('Calm Meadow');
+    setFluteCharges(0);
+    setBuffs({ slow: 0, magnet: 0, aura: 0 });
     setPhase(PHASE.PLAYING);
     const mantra = mantraRef.current;
     if (mantra) {
@@ -1185,10 +1458,16 @@ export default function Page() {
 
   const endGame = useCallback((finalScore) => {
     setScore(finalScore);
+    const runBestCombo = engineRef.current?.bestCombo || 0;
+    setBestCombo((prev) => Math.max(prev, runBestCombo));
     setBest((prev) => {
       const next = Math.max(prev, finalScore);
       try {
         localStorage.setItem('makhan-vrindavan-best', String(next));
+        localStorage.setItem(
+          'makhan-vrindavan-best-combo',
+          String(Math.max(runBestCombo, Number(localStorage.getItem('makhan-vrindavan-best-combo') || 0)))
+        );
       } catch {
         /* ignore */
       }
@@ -1214,8 +1493,12 @@ export default function Page() {
         e.input.jump = true;
         ev.preventDefault();
       }
-      if (ev.key === 'c' || ev.key === 'C' || ev.key === 'f' || ev.key === 'F') {
+      if (ev.key === 'c' || ev.key === 'C') {
         e.input.chakra = true;
+        ev.preventDefault();
+      }
+      if (ev.key === 'e' || ev.key === 'E' || ev.key === 'q' || ev.key === 'Q') {
+        e.input.flute = true;
         ev.preventDefault();
       }
       if (ev.key === ' ') {
@@ -1238,8 +1521,11 @@ export default function Page() {
       if (ev.key === 'ArrowUp' || ev.key === 'w' || ev.key === 'W' || ev.key === ' ') {
         e.input.jump = false;
       }
-      if (ev.key === 'c' || ev.key === 'C' || ev.key === 'f' || ev.key === 'F' || ev.key === ' ') {
+      if (ev.key === 'c' || ev.key === 'C' || ev.key === ' ') {
         e.input.chakra = false;
+      }
+      if (ev.key === 'e' || ev.key === 'E' || ev.key === 'q' || ev.key === 'Q') {
+        e.input.flute = false;
       }
     };
     window.addEventListener('keydown', down);
@@ -1305,17 +1591,77 @@ export default function Page() {
           e.player.y = e.player.baseY;
         }
 
+        // Buff timers
+        for (const k of Object.keys(e.buffs)) {
+          if (e.buffs[k] > 0) e.buffs[k] = Math.max(0, e.buffs[k] - dt);
+        }
+        if (e.flutePull > 0) e.flutePull = Math.max(0, e.flutePull - dt);
+
+        // Flute charm — pull nearest pot (uses a charge)
+        if (e.input.flute) {
+          e.input.flute = false;
+          if (e.fluteCharges > 0 && e.pots.length > 0) {
+            e.fluteCharges -= 1;
+            e.flutePull = 0.85;
+            setFluteCharges(e.fluteCharges);
+            e.floatText.push({
+              x: e.player.x,
+              y: e.player.y - e.player.h * 0.6,
+              text: 'FLUTE CHARM ♪',
+              color: '#c4b5fd',
+              life: 1.1,
+            });
+          }
+        }
+
         // Continuous speed ramp every frame
         updateFallSpeed(e, dt);
+        const heat = heatStage(e);
+        if (heat.id !== e.heatId) {
+          e.heatId = heat.id;
+          setHeatLabel(heat.label);
+          e.floatText.push({
+            x: e.w * 0.5,
+            y: e.h * 0.2,
+            text: heat.label.toUpperCase(),
+            color: heat.id === 'divine' ? '#c4b5fd' : heat.id === 'chaos' ? '#fca5a5' : '#fdba74',
+            life: 1.8,
+          });
+        }
+
+        // Yashoda call set-piece
+        e.eventCooldown -= dt;
+        if (!e.event && e.caught >= 12 && e.eventCooldown <= 0 && Math.random() < 0.008) {
+          if (startYashodaEvent(e)) e.eventCooldown = 28 + Math.random() * 10;
+        }
+        if (e.event?.kind === 'yashoda') {
+          e.event.t -= dt;
+          if (e.event.phase === 'warn' && e.event.t <= 0) {
+            e.event.phase = 'freeze';
+            e.event.t = 0.85;
+          } else if (e.event.phase === 'freeze' && e.event.t <= 0) {
+            e.event.phase = 'dump';
+            e.event.t = 0.05;
+            e.event.dumps = 5;
+          } else if (e.event.phase === 'dump') {
+            if (e.event.t <= 0 && e.event.dumps > 0) {
+              spawnPot(e, { type: Math.random() < 0.25 ? 'cursed' : 'normal' });
+              e.event.dumps -= 1;
+              e.event.t = 0.18;
+            }
+            if (e.event.dumps <= 0 && e.event.t <= 0) e.event = null;
+          }
+        }
+        const frozen = e.event?.kind === 'yashoda' && e.event.phase === 'freeze';
+        const timeScale = frozen ? 0 : e.buffs.slow > 0 ? 0.52 : 1;
 
         e.spawnTimer -= dt;
-        if (e.spawnTimer <= 0) {
+        if (!frozen && e.spawnTimer <= 0) {
           const cap = maxPotsFor(e);
           if (e.pots.length >= cap) {
             e.spawnTimer = 0.2;
           } else {
             spawnPot(e);
-            // Extra pots stack sooner as difficulty climbs
             if (cap >= 2 && e.pots.length < cap && Math.random() < 0.28 + difficulty(e) * 0.08) {
               spawnPot(e);
             }
@@ -1328,37 +1674,145 @@ export default function Page() {
           }
         }
 
+        // Monkey butter thief
+        e.monkeyCooldown -= dt;
+        if (!e.monkey && e.caught >= 8 && e.monkeyCooldown <= 0 && e.pots.length > 0 && Math.random() < 0.012) {
+          if (spawnMonkey(e)) e.monkeyCooldown = 14 + Math.random() * 10;
+        }
+        if (e.monkey) {
+          const m = e.monkey;
+          m.x += m.vx * dt;
+          m.y = e.h * 0.52 + Math.sin(e.time * 10 + m.bob) * 6;
+          // Pick nearest pot once
+          if (!m.target && e.pots.length) {
+            let best = e.pots[0];
+            let bestD = Infinity;
+            for (const pot of e.pots) {
+              const dd = Math.abs(pot.x - m.x) + Math.abs(pot.y - m.y);
+              if (dd < bestD) {
+                bestD = dd;
+                best = pot;
+              }
+            }
+            m.target = best;
+          }
+          if (m.state === 'run' && m.target && e.pots.includes(m.target)) {
+            const dx = m.target.x - m.x;
+            m.vx = Math.sign(dx || m.facing) * 240;
+            m.facing = Math.sign(m.vx) || m.facing;
+            if (Math.abs(dx) < 28 && Math.abs(m.target.y - m.y) < 70) {
+              // Steal unless Krishna jump-scares nearby
+              const nearPlayer =
+                Math.abs(e.player.x - m.x) < e.player.w * 0.7 && !e.player.onGround;
+              if (nearPlayer) {
+                m.state = 'flee';
+                m.vx = (m.x < e.player.x ? -1 : 1) * 320;
+                e.score += 5;
+                addCombo(e);
+                setScore(e.score);
+                setCombo(e.combo);
+                e.floatText.push({
+                  x: m.x,
+                  y: m.y - 20,
+                  text: 'SCARED! +5',
+                  color: '#86efac',
+                  life: 1.2,
+                });
+              } else {
+                const idx = e.pots.indexOf(m.target);
+                if (idx >= 0) {
+                  burst(e, m.target.x, m.target.y, '#fdba74', 10);
+                  e.pots.splice(idx, 1);
+                  e.floatText.push({
+                    x: m.x,
+                    y: m.y - 20,
+                    text: 'STOLEN!',
+                    color: '#fb923c',
+                    life: 1.2,
+                  });
+                }
+                m.state = 'flee';
+                m.vx = m.facing * 300;
+              }
+            }
+          }
+          if (m.state === 'flee' || m.x < -80 || m.x > e.w + 80) {
+            if (m.x < -80 || m.x > e.w + 80) e.monkey = null;
+            else if (m.state === 'flee') {
+              /* keep fleeing */
+            }
+          }
+        }
+
         for (let i = e.pots.length - 1; i >= 0; i--) {
           const pot = e.pots[i];
-          const speedMul = pot.type === 'golden' ? 1.12 : pot.type === 'white' ? 1.04 : 1;
-          pot.y += e.fallSpeed * speedMul * dt;
-          pot.rot += pot.spin * dt;
-          pot.x += Math.sin(e.time * 2 + pot.wobble) * 16 * dt;
+          const speedMul =
+            pot.type === 'golden' ? 1.12 : pot.type === 'white' ? 1.04 : pot.type === 'cursed' ? 1.18 : 1;
+          if (!frozen) {
+            pot.y += e.fallSpeed * speedMul * timeScale * dt;
+            pot.rot += pot.spin * dt;
+            pot.x += Math.sin(e.time * 2 + pot.wobble) * 16 * dt;
+          }
 
-          // Catch zone follows Krishna's jump — a bit taller while airborne
+          // Magnet / flute pull toward Krishna
+          if (e.buffs.magnet > 0 || e.flutePull > 0) {
+            const pull = e.flutePull > 0 ? 420 : 160;
+            const ang = Math.atan2(e.player.y - e.player.h * 0.25 - pot.y, e.player.x - pot.x);
+            pot.x += Math.cos(ang) * pull * dt;
+            pot.y += Math.sin(ang) * pull * 0.55 * dt;
+          }
+
+          // Catch zone follows Krishna's jump — aura buff widens it
           const airBonus = e.player.onGround ? 0 : e.player.h * 0.12;
+          const auraBonus = e.buffs.aura > 0 ? e.player.w * 0.22 : 0;
           const catchY = e.player.y - e.player.h * 0.18;
           const dx = pot.x - e.player.x;
           const dy = pot.y - catchY;
-          const hitR = e.player.w * 0.45 + pot.r * 0.5;
+          const hitR = e.player.w * 0.45 + pot.r * 0.5 + auraBonus;
 
           if (dy > -pot.r - airBonus && dy < e.player.h * 0.4 && Math.abs(dx) < hitR) {
-            const pts = POT_POINTS[pot.type] || 1;
+            const base = POT_POINTS[pot.type] || 1;
+            addCombo(e);
+            const mult = comboMultiplier(e.combo);
+            const pts = base * mult;
             e.score += pts;
             e.caught += 1;
-            e.catchStreak += 1;
-            e.missStreak = 0; // catching resets consecutive misses
+            e.missStreak = 0;
 
             const burstColor =
-              pot.type === 'golden' ? '#ffd54a' : pot.type === 'white' ? '#f5f5f5' : '#ffe566';
-            burst(e, pot.x, pot.y, burstColor, pot.type === 'golden' ? 22 : 12);
+              pot.type === 'cursed'
+                ? '#c084fc'
+                : pot.type === 'golden'
+                  ? '#ffd54a'
+                  : pot.type === 'white'
+                    ? '#f5f5f5'
+                    : '#ffe566';
+            burst(e, pot.x, pot.y, burstColor, pot.type === 'golden' || pot.type === 'cursed' ? 22 : 12);
             e.floatText.push({
               x: pot.x,
               y: pot.y - 16,
-              text: `+${pts}`,
-              color: pot.type === 'golden' ? '#ffd54a' : pot.type === 'white' ? '#e8eef8' : '#fbbf24',
+              text: mult > 1 ? `+${pts} (x${mult})` : `+${pts}`,
+              color:
+                pot.type === 'cursed'
+                  ? '#e9d5ff'
+                  : pot.type === 'golden'
+                    ? '#ffd54a'
+                    : pot.type === 'white'
+                      ? '#e8eef8'
+                      : '#fbbf24',
               life: 0.85,
             });
+
+            // Chance to drop a blessing orb
+            if (
+              pot.type === 'golden' ||
+              pot.type === 'cursed' ||
+              (e.combo > 0 && e.combo % 8 === 0)
+            ) {
+              if (Math.random() < (pot.type === 'golden' ? 0.55 : 0.35)) {
+                spawnPowerup(e, pot.x, pot.y - 10);
+              }
+            }
 
             const unlocked = checkAchievements(e);
             if (unlocked.paglu) flashBadge('paglu');
@@ -1368,22 +1822,86 @@ export default function Page() {
             setScore(e.score);
             setCaught(e.caught);
             setMissStreak(0);
+            setCombo(e.combo);
+            setComboMult(mult);
             continue;
           }
 
-          if (pot.y - pot.r > e.h) {
-            e.missStreak += 1;
-            e.catchStreak = 0;
-            e.shake = 0.28;
-            burst(e, pot.x, e.h - 24, '#f87171', 14);
+          if (!frozen && pot.y - pot.r > e.h) {
+            const missAdd = pot.type === 'cursed' ? 2 : 1;
+            e.missStreak += missAdd;
+            resetCombo(e);
+            e.shake = pot.type === 'cursed' ? 0.4 : 0.28;
+            burst(e, pot.x, e.h - 24, pot.type === 'cursed' ? '#a855f7' : '#f87171', 14);
+            if (pot.type === 'cursed') {
+              e.floatText.push({
+                x: pot.x,
+                y: e.h - 48,
+                text: 'CURSED MISS −2',
+                color: '#e9d5ff',
+                life: 1.1,
+              });
+            }
             e.pots.splice(i, 1);
             setMissStreak(e.missStreak);
-            // 5 pots missed in a row → game over
+            setCombo(0);
+            setComboMult(1);
             if (e.missStreak >= e.missLimit) {
               endGame(e.score);
               break;
             }
           }
+        }
+
+        // Power-up orbs
+        for (let i = e.powerups.length - 1; i >= 0; i--) {
+          const p = e.powerups[i];
+          p.life -= dt;
+          p.y += p.vy * dt;
+          p.x += Math.sin(e.time * 3 + p.wobble) * 10 * dt;
+          const dx = p.x - e.player.x;
+          const dy = p.y - (e.player.y - e.player.h * 0.2);
+          if (dx * dx + dy * dy < (e.player.w * 0.4) ** 2) {
+            if (p.kind === 'slow') e.buffs.slow = Math.max(e.buffs.slow, 4.5);
+            if (p.kind === 'magnet') e.buffs.magnet = Math.max(e.buffs.magnet, 5);
+            if (p.kind === 'aura') e.buffs.aura = Math.max(e.buffs.aura, 6);
+            if (p.kind === 'flute') {
+              e.fluteCharges = Math.min(3, e.fluteCharges + 1);
+              setFluteCharges(e.fluteCharges);
+            }
+            const labels = {
+              slow: 'SLOW-MO',
+              magnet: 'MAGNET',
+              aura: 'DIVINE AURA',
+              flute: 'FLUTE +1',
+            };
+            e.floatText.push({
+              x: p.x,
+              y: p.y - 12,
+              text: labels[p.kind] || 'BLESSING',
+              color: '#a5f3fc',
+              life: 1.2,
+            });
+            burst(e, p.x, p.y, '#67e8f9', 12);
+            e.powerups.splice(i, 1);
+            setBuffs({
+              slow: e.buffs.slow,
+              magnet: e.buffs.magnet,
+              aura: e.buffs.aura,
+            });
+            continue;
+          }
+          if (p.life <= 0 || p.y > e.h + 30) e.powerups.splice(i, 1);
+        }
+        // Sync buff HUD ~4×/sec (avoid setState every frame)
+        e._buffHudT = (e._buffHudT || 0) - dt;
+        if (e._buffHudT <= 0) {
+          e._buffHudT = 0.25;
+          setBuffs({
+            slow: e.buffs.slow,
+            magnet: e.buffs.magnet,
+            aura: e.buffs.aura,
+          });
         }
 
         // ---- Putana encounter ----
@@ -1407,9 +1925,21 @@ export default function Page() {
           if (boss.hitFlash > 0) boss.hitFlash = Math.max(0, boss.hitFlash - dt);
 
           if (boss.state === 'fall') {
-            // Fall from above like pots
-            boss.y += boss.vy * dt;
-            boss.x += Math.sin(e.time * 2 + boss.wobble) * 14 * dt;
+            // Fall from above like pots — variants change motion
+            const yashodaFreeze = e.event?.kind === 'yashoda' && e.event.phase === 'freeze';
+            const fallScale = yashodaFreeze ? 0 : e.buffs.slow > 0 ? 0.55 : 1;
+            boss.y += boss.vy * fallScale * dt;
+            if (boss.variant === 'zigzag') {
+              boss.x += Math.sin(e.time * 5.5 + boss.wobble) * boss.zigAmp * dt * 3.2;
+            } else if (boss.variant === 'swift') {
+              boss.x += Math.sin(e.time * 3.2 + boss.wobble) * 28 * dt;
+            } else {
+              boss.x += Math.sin(e.time * 2 + boss.wobble) * 14 * dt;
+            }
+            boss.x = Math.max(boss.size * 0.4, Math.min(e.w - boss.size * 0.4, boss.x));
+            if (boss.mirror) {
+              boss.mirror.x = e.w - boss.x + Math.sin(e.time * 4 + boss.mirror.phase) * 18;
+            }
             if (e.input.chakra) throwChakra(e);
 
             // Reached the ground without being hit → fail, lose 10 pots
@@ -1417,10 +1947,12 @@ export default function Page() {
               const lost = 10;
               e.score = Math.max(0, e.score - lost);
               e.caught = Math.max(0, e.caught - lost);
-              e.catchStreak = 0;
+              resetCombo(e);
               e.shake = 0.4;
               setScore(e.score);
               setCaught(e.caught);
+              setCombo(0);
+              setComboMult(1);
               burst(e, boss.x, e.h - 30, '#f472b6', 16);
               e.floatText.push({
                 x: e.w * 0.5,
@@ -1458,10 +1990,14 @@ export default function Page() {
             if (dx * dx + dy * dy < (boss.size * 0.4) ** 2) {
               boss.state = 'dying';
               e.putanaKills += 1;
-              e.score += 15;
+              addCombo(e);
+              addCombo(e);
+              e.score += 15 * comboMultiplier(e.combo);
               e.caught += 5;
               setScore(e.score);
               setCaught(e.caught);
+              setCombo(e.combo);
+              setComboMult(comboMultiplier(e.combo));
               burst(e, boss.x, boss.y, '#f472b6', 28);
               burst(e, boss.x, boss.y, '#fbbf24', 18);
               e.floatText.push({
@@ -1524,6 +2060,8 @@ export default function Page() {
       }
       drawGarden(ctx, e, e.time, calfSpritesRef.current);
       for (const pot of e.pots) drawPot(ctx, pot, e.time, potSpritesRef.current);
+      for (const p of e.powerups || []) drawPowerup(ctx, p, e.time);
+      if (e.monkey) drawMonkey(ctx, e.monkey, e.time);
       if (e.putana) drawPutana(ctx, e.putana, e.time, putanaSpriteRef.current);
       for (const c of e.chakras) drawSudarshan(ctx, c);
       drawKrishna(ctx, e.player, e.time, spriteRef.current);
@@ -1588,6 +2126,12 @@ export default function Page() {
     const e = engineRef.current;
     if (!e || phaseRef.current !== PHASE.PLAYING) return;
     e.input.chakra = true;
+  };
+
+  const doFlute = () => {
+    const e = engineRef.current;
+    if (!e || phaseRef.current !== PHASE.PLAYING) return;
+    e.input.flute = true;
   };
 
   // Release movement if pointer is released anywhere (mouse/trackpad safety)
@@ -1682,6 +2226,20 @@ export default function Page() {
               >
                 Jump
               </button>
+              {fluteCharges > 0 && (
+                <button
+                  type="button"
+                  aria-label="Play flute charm"
+                  className="control-btn min-w-[7.5rem] rounded-full border border-violet-300/50 bg-gradient-to-r from-violet-400/90 to-fuchsia-500/90 px-5 py-2.5 text-sm font-extrabold uppercase tracking-[0.12em] text-white shadow-lg active:scale-90"
+                  onPointerDown={(ev) => {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    doFlute();
+                  }}
+                >
+                  ♪ Flute ×{fluteCharges}
+                </button>
+              )}
               {putanaActive && (
                 <button
                   type="button"
@@ -1721,10 +2279,34 @@ export default function Page() {
               {score}
             </p>
             <p className="mt-0.5 text-[10px] text-white/55">{caught} pots</p>
+            <p
+              className={`mt-1 text-[10px] font-extrabold uppercase tracking-wider ${
+                comboMult >= 4
+                  ? 'text-fuchsia-300'
+                  : comboMult >= 2
+                    ? 'text-amber-200'
+                    : 'text-white/45'
+              }`}
+            >
+              Combo {combo} · ×{comboMult}
+            </p>
           </div>
 
           <div className="flex flex-col items-center gap-2">
-            {/* Consecutive misses — fills red as you miss in a row; clears on catch */}
+            <div
+              className={`rounded-full border px-3 py-1 text-center text-[10px] font-extrabold uppercase tracking-[0.18em] shadow-md backdrop-blur-md ${
+                heatLabel.includes('Divine')
+                  ? 'border-violet-300/50 bg-violet-500/30 text-violet-100'
+                  : heatLabel.includes('Chaos')
+                    ? 'border-rose-300/50 bg-rose-500/30 text-rose-100'
+                    : heatLabel.includes('Busy')
+                      ? 'border-orange-300/50 bg-orange-500/25 text-orange-100'
+                      : 'border-white/20 bg-white/10 text-white/70'
+              }`}
+            >
+              {heatLabel}
+            </div>
+
             <div className="rounded-2xl border border-white/20 bg-white/10 px-3 py-2 shadow-lg backdrop-blur-md">
               <p className="mb-1 text-center text-[9px] font-bold uppercase tracking-[0.18em] text-white/55">
                 Miss streak
@@ -1746,10 +2328,34 @@ export default function Page() {
                 ))}
               </div>
               <p className="mt-1 text-center text-[9px] text-white/45">
-                {5 - missStreak} left in a row
+                {Math.max(0, 5 - missStreak)} left in a row
               </p>
             </div>
 
+            {(buffs.slow > 0 || buffs.magnet > 0 || buffs.aura > 0 || fluteCharges > 0) && (
+              <div className="flex flex-wrap justify-center gap-1">
+                {buffs.slow > 0 && (
+                  <span className="rounded-full bg-cyan-500/30 px-2 py-0.5 text-[9px] font-bold text-cyan-100">
+                    Slow {buffs.slow.toFixed(0)}s
+                  </span>
+                )}
+                {buffs.magnet > 0 && (
+                  <span className="rounded-full bg-amber-500/30 px-2 py-0.5 text-[9px] font-bold text-amber-100">
+                    Magnet {buffs.magnet.toFixed(0)}s
+                  </span>
+                )}
+                {buffs.aura > 0 && (
+                  <span className="rounded-full bg-emerald-500/30 px-2 py-0.5 text-[9px] font-bold text-emerald-100">
+                    Aura {buffs.aura.toFixed(0)}s
+                  </span>
+                )}
+                {fluteCharges > 0 && (
+                  <span className="rounded-full bg-violet-500/30 px-2 py-0.5 text-[9px] font-bold text-violet-100">
+                    Flute ×{fluteCharges}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="rounded-2xl border border-white/15 bg-white/10 px-3 py-2 text-right shadow-lg backdrop-blur-md">
@@ -1872,11 +2478,12 @@ export default function Page() {
               ))}
             </div>
 
-            <div className="relative mb-5 space-y-2 rounded-2xl border border-white/10 bg-black/20 p-3 text-left text-xs text-white/70 sm:text-sm">
-              <p>⚡ Speed &amp; pot count rise as you score</p>
-              <p>🦚 50 pots → <span className="font-bold text-amber-200">Krishna Paglu</span></p>
-              <p>🌿 500 score → <span className="font-bold text-emerald-200">Krishna Conscious</span> + motichur laddu</p>
-              <p>💀 Miss 5 in a row = game over</p>
+            <div className="relative mb-5 space-y-1.5 rounded-2xl border border-white/10 bg-black/20 p-3 text-left text-xs text-white/70 sm:text-sm">
+              <p>🔥 Heat rises: Calm → Busy → Chaos → <span className="font-bold text-violet-200">Divine Trial</span></p>
+              <p>✨ Combos multiply score (up to ×5) — miss resets it</p>
+              <p>🟣 Cursed pots +15, but a miss costs <span className="font-bold text-fuchsia-200">2 streak</span></p>
+              <p>🐒 Jump-scare butter thieves · ♪ Flute charm (E) · Yashoda freeze-dump</p>
+              <p>🦚 50 pots Paglu · 🌿 500 Conscious + motichur · 💀 5 misses = over</p>
             </div>
 
             <button
@@ -1917,7 +2524,7 @@ export default function Page() {
               {score}
             </p>
             <p className="mb-2 text-sm text-white/70">
-              {caught} pots caught · 5 misses in a row
+              {caught} pots · best combo {Math.max(bestCombo, combo)} · 5 misses in a row
             </p>
             {(showPaglu || showConscious || hasLaddu) && (
               <div className="mb-4 space-y-2">

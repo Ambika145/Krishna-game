@@ -202,8 +202,11 @@ function createEngine(w, h) {
   };
 }
 
+const PUTANA_MIN_CAUGHT = 6;
+
+/** Returns true only when Putana was actually spawned. */
 function spawnPutana(e) {
-  if (e.putana || e.caught < 10) return;
+  if (e.putana || e.caught < PUTANA_MIN_CAUGHT) return false;
   const size = Math.min(88, Math.max(64, e.w * 0.12));
   const margin = size + 24;
   e.putana = {
@@ -228,6 +231,47 @@ function spawnPutana(e) {
     color: '#f472b6',
     life: 1.6,
   });
+  return true;
+}
+
+/** Badge unlocks from current score/caught — safe to call after any reward. */
+function checkAchievements(e) {
+  const unlocked = { paglu: false, conscious: false };
+  if (!e.achievementUnlocked && e.caught >= 50) {
+    e.achievementUnlocked = true;
+    e.achievementFlash = Math.max(e.achievementFlash, 4.2);
+    spawnCelebrationStars(e, 48);
+    e.floatText.push({
+      x: e.w * 0.5,
+      y: e.h * 0.35,
+      text: 'KRISHNA PAGLU!',
+      color: '#ffd54a',
+      life: 2.2,
+    });
+    unlocked.paglu = true;
+  }
+  if (!e.consciousUnlocked && e.score >= 500) {
+    e.consciousUnlocked = true;
+    e.hasLaddu = true;
+    e.achievementFlash = Math.max(e.achievementFlash, 4.5);
+    spawnCelebrationStars(e, 60);
+    e.floatText.push({
+      x: e.w * 0.5,
+      y: e.h * 0.32,
+      text: 'KRISHNA CONSCIOUS!',
+      color: '#a7f3d0',
+      life: 2.4,
+    });
+    e.floatText.push({
+      x: e.w * 0.5,
+      y: e.h * 0.38,
+      text: '+1 MOTICHUR LADDU',
+      color: '#fdba74',
+      life: 2.2,
+    });
+    unlocked.conscious = true;
+  }
+  return unlocked;
 }
 
 /** Continuous difficulty — steep enough to feel tougher as you progress. */
@@ -975,8 +1019,25 @@ export default function Page() {
   const [hasLaddu, setHasLaddu] = useState(false);
   const [putanaActive, setPutanaActive] = useState(false);
   const [assetsReady, setAssetsReady] = useState(false);
+  const pagluTimerRef = useRef(null);
+  const consciousTimerRef = useRef(null);
 
   phaseRef.current = phase;
+
+  const flashBadge = useCallback((kind) => {
+    if (kind === 'paglu') {
+      setShowPaglu(true);
+      setPagluBurst(true);
+      if (pagluTimerRef.current) clearTimeout(pagluTimerRef.current);
+      pagluTimerRef.current = setTimeout(() => setPagluBurst(false), 3800);
+    } else if (kind === 'conscious') {
+      setShowConscious(true);
+      setConsciousBurst(true);
+      setHasLaddu(true);
+      if (consciousTimerRef.current) clearTimeout(consciousTimerRef.current);
+      consciousTimerRef.current = setTimeout(() => setConsciousBurst(false), 4000);
+    }
+  }, []);
 
   useEffect(() => {
     try {
@@ -1099,6 +1160,8 @@ export default function Page() {
   }, []);
 
   const startGame = useCallback(() => {
+    if (pagluTimerRef.current) clearTimeout(pagluTimerRef.current);
+    if (consciousTimerRef.current) clearTimeout(consciousTimerRef.current);
     const w = window.innerWidth;
     const h = window.innerHeight;
     engineRef.current = createEngine(w, h);
@@ -1297,47 +1360,9 @@ export default function Page() {
               life: 0.85,
             });
 
-            if (!e.achievementUnlocked && e.caught >= 50) {
-              e.achievementUnlocked = true;
-              e.achievementFlash = 4.2;
-              spawnCelebrationStars(e, 48);
-              setShowPaglu(true); // kept for game-over summary
-              setPagluBurst(true); // toast only — then disappears
-              setTimeout(() => setPagluBurst(false), 3800);
-              e.floatText.push({
-                x: e.w * 0.5,
-                y: e.h * 0.35,
-                text: 'KRISHNA PAGLU!',
-                color: '#ffd54a',
-                life: 2.2,
-              });
-            }
-
-            // 500 score → Krishna Conscious + one motichur laddu
-            if (!e.consciousUnlocked && e.score >= 500) {
-              e.consciousUnlocked = true;
-              e.hasLaddu = true;
-              e.achievementFlash = 4.5;
-              spawnCelebrationStars(e, 60);
-              setShowConscious(true); // kept for game-over summary
-              setConsciousBurst(true); // toast only — then disappears
-              setHasLaddu(true);
-              setTimeout(() => setConsciousBurst(false), 4000);
-              e.floatText.push({
-                x: e.w * 0.5,
-                y: e.h * 0.32,
-                text: 'KRISHNA CONSCIOUS!',
-                color: '#a7f3d0',
-                life: 2.4,
-              });
-              e.floatText.push({
-                x: e.w * 0.5,
-                y: e.h * 0.38,
-                text: '+1 MOTICHUR LADDU',
-                color: '#fdba74',
-                life: 2.2,
-              });
-            }
+            const unlocked = checkAchievements(e);
+            if (unlocked.paglu) flashBadge('paglu');
+            if (unlocked.conscious) flashBadge('conscious');
 
             e.pots.splice(i, 1);
             setScore(e.score);
@@ -1367,9 +1392,13 @@ export default function Page() {
         {
           const haste = Math.min(1, (e.fallSpeed - 95) / 280);
           const chance = 0.018 + haste * 0.055;
-          if (!e.putana && e.caught >= 6 && e.putanaCooldown <= 0 && Math.random() < chance) {
-            spawnPutana(e);
-            setPutanaActive(true);
+          if (
+            !e.putana &&
+            e.caught >= PUTANA_MIN_CAUGHT &&
+            e.putanaCooldown <= 0 &&
+            Math.random() < chance
+          ) {
+            if (spawnPutana(e)) setPutanaActive(true);
           }
         }
 
@@ -1388,6 +1417,7 @@ export default function Page() {
               const lost = 10;
               e.score = Math.max(0, e.score - lost);
               e.caught = Math.max(0, e.caught - lost);
+              e.catchStreak = 0;
               e.shake = 0.4;
               setScore(e.score);
               setCaught(e.caught);
@@ -1441,6 +1471,9 @@ export default function Page() {
                 color: '#fbbf24',
                 life: 1.5,
               });
+              const unlocked = checkAchievements(e);
+              if (unlocked.paglu) flashBadge('paglu');
+              if (unlocked.conscious) flashBadge('conscious');
               e.chakras.splice(i, 1);
               continue;
             }
@@ -1505,7 +1538,7 @@ export default function Page() {
       cancelAnimationFrame(rafRef.current);
       window.removeEventListener('resize', resize);
     };
-  }, [resize, endGame, assetsReady]);
+  }, [resize, endGame, assetsReady, flashBadge]);
 
   const setSide = (side, down) => {
     const e = engineRef.current;

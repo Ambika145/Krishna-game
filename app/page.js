@@ -12,6 +12,62 @@ const PHASE = { MENU: 'MENU', PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER' };
 
 const POT_POINTS = { normal: 1, white: 3, golden: 10 };
 
+/** Motichur laddu — orange boondi sphere (not dango emoji). */
+function MotichurLaddu({ size = 40, className = '' }) {
+  const uid = useRef(`ml-${Math.random().toString(36).slice(2, 9)}`).current;
+  const ballId = `${uid}-ball`;
+  const shineId = `${uid}-shine`;
+  const seeds = [
+    [0.32, 0.28, 0.07],
+    [0.55, 0.22, 0.06],
+    [0.72, 0.34, 0.065],
+    [0.28, 0.48, 0.06],
+    [0.48, 0.42, 0.075],
+    [0.68, 0.52, 0.06],
+    [0.38, 0.64, 0.065],
+    [0.58, 0.68, 0.07],
+    [0.78, 0.62, 0.055],
+    [0.42, 0.34, 0.05],
+    [0.62, 0.4, 0.055],
+    [0.5, 0.55, 0.06],
+  ];
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      className={className}
+      aria-hidden
+    >
+      <defs>
+        <radialGradient id={ballId} cx="35%" cy="30%" r="65%">
+          <stop offset="0%" stopColor="#ffd27a" />
+          <stop offset="45%" stopColor="#f59e0b" />
+          <stop offset="100%" stopColor="#c2410c" />
+        </radialGradient>
+        <radialGradient id={shineId} cx="30%" cy="25%" r="40%">
+          <stop offset="0%" stopColor="#fff7ed" stopOpacity="0.7" />
+          <stop offset="100%" stopColor="#fff7ed" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <ellipse cx="32" cy="54" rx="18" ry="4" fill="#000" opacity="0.18" />
+      <circle cx="32" cy="32" r="22" fill={`url(#${ballId})`} />
+      <circle cx="32" cy="32" r="22" fill={`url(#${shineId})`} />
+      {seeds.map(([x, y, r], i) => (
+        <circle
+          key={i}
+          cx={x * 64}
+          cy={y * 64}
+          r={r * 64}
+          fill={i % 3 === 0 ? '#fdba74' : i % 3 === 1 ? '#ea580c' : '#fbbf24'}
+          opacity={0.85}
+        />
+      ))}
+      <circle cx="24" cy="24" r="5" fill="#fff7ed" opacity="0.35" />
+    </svg>
+  );
+}
+
 function playerSize(w) {
   const size = Math.min(140, Math.max(96, w * 0.2));
   return { w: size, h: size };
@@ -84,9 +140,9 @@ function createEngine(w, h) {
     // Game over only after 5 misses in a row (catching resets the streak)
     missStreak: 0,
     missLimit: 5,
-    // Gentle start — speed & density ramp continuously with score
-    fallSpeed: 85,
-    spawnTimer: 1.8,
+    // Starts gentle, then ramps hard with score / catches / time
+    fallSpeed: 95,
+    spawnTimer: 1.45,
     shake: 0,
     catchStreak: 0,
     sinceGolden: 0,
@@ -101,7 +157,7 @@ function createEngine(w, h) {
     // Putana boss encounter
     putana: null,
     chakras: [],
-    putanaCooldown: 20,
+    putanaCooldown: 14,
     putanaKills: 0,
     butterflies: Array.from({ length: 4 }, () => createButterfly(w, h)),
     bees: Array.from({ length: 7 }, () => {
@@ -156,15 +212,15 @@ function spawnPutana(e) {
     size,
     facing: Math.random() < 0.5 ? 1 : -1,
     state: 'fall', // fall | dying
-    // Fall like pots — a bit slower than current pot speed so player can react
-    vy: Math.max(70, e.fallSpeed * 0.75),
+    // Fall like pots — scales up with current speed
+    vy: Math.max(95, e.fallSpeed * 0.92),
     wobble: Math.random() * Math.PI * 2,
     bobPhase: Math.random() * 10,
     hitFlash: 0,
   };
   // Faster game → Putana returns sooner
-  const haste = Math.min(1, (e.fallSpeed - 85) / 220);
-  e.putanaCooldown = Math.max(7, 20 - haste * 12) + Math.random() * (6 - haste * 3);
+  const haste = Math.min(1, (e.fallSpeed - 95) / 280);
+  e.putanaCooldown = Math.max(5, 14 - haste * 9) + Math.random() * (4 - haste * 2);
   e.floatText.push({
     x: e.w * 0.5,
     y: e.h * 0.22,
@@ -174,28 +230,28 @@ function spawnPutana(e) {
   });
 }
 
-/** Continuous difficulty from score (and light time pressure). */
+/** Continuous difficulty — steep enough to feel tougher as you progress. */
 function difficulty(e) {
-  const fromScore = e.score / 80;
-  const fromCaught = e.caught / 40;
-  const fromTime = e.time / 90;
-  return Math.max(0, fromScore + fromCaught * 0.35 + fromTime * 0.25);
+  const fromScore = e.score / 42;
+  const fromCaught = e.caught / 20;
+  const fromTime = e.time / 48;
+  return Math.max(0, fromScore + fromCaught * 0.55 + fromTime * 0.4);
 }
 
 function maxPotsFor(e) {
   const d = difficulty(e);
-  if (d < 0.8) return 1;
-  if (d < 1.8) return 2;
-  if (d < 3.2) return 3;
-  if (d < 5) return 4;
+  if (d < 0.4) return 1;
+  if (d < 1.0) return 2;
+  if (d < 1.9) return 3;
+  if (d < 3.0) return 4;
   return 5;
 }
 
 function updateFallSpeed(e, dt) {
-  // Continuous ramp toward a soft cap
-  const target = Math.min(340, 85 + difficulty(e) * 42);
+  // Aggressive continuous ramp — soft start, climbs hard
+  const target = Math.min(460, 95 + difficulty(e) * 62);
   if (e.fallSpeed < target) {
-    e.fallSpeed = Math.min(target, e.fallSpeed + 22 * dt);
+    e.fallSpeed = Math.min(target, e.fallSpeed + 48 * dt);
   }
 }
 
@@ -1196,13 +1252,16 @@ export default function Page() {
             e.spawnTimer = 0.2;
           } else {
             spawnPot(e);
-            // Sometimes spawn a second pot when difficulty is high
-            if (cap >= 3 && e.pots.length < cap && Math.random() < 0.22 + difficulty(e) * 0.04) {
+            // Extra pots stack sooner as difficulty climbs
+            if (cap >= 2 && e.pots.length < cap && Math.random() < 0.28 + difficulty(e) * 0.08) {
+              spawnPot(e);
+            }
+            if (cap >= 4 && e.pots.length < cap && Math.random() < 0.18 + difficulty(e) * 0.05) {
               spawnPot(e);
             }
             const d = difficulty(e);
-            const baseGap = Math.max(0.32, 2.0 - d * 0.28);
-            e.spawnTimer = baseGap * (0.85 + Math.random() * 0.3);
+            const baseGap = Math.max(0.2, 1.55 - d * 0.36);
+            e.spawnTimer = baseGap * (0.8 + Math.random() * 0.28);
           }
         }
 
@@ -1240,11 +1299,11 @@ export default function Page() {
 
             if (!e.achievementUnlocked && e.caught >= 50) {
               e.achievementUnlocked = true;
-              e.achievementFlash = 5.5;
+              e.achievementFlash = 4.2;
               spawnCelebrationStars(e, 48);
-              setShowPaglu(true);
-              setPagluBurst(true);
-              setTimeout(() => setPagluBurst(false), 5200);
+              setShowPaglu(true); // kept for game-over summary
+              setPagluBurst(true); // toast only — then disappears
+              setTimeout(() => setPagluBurst(false), 3800);
               e.floatText.push({
                 x: e.w * 0.5,
                 y: e.h * 0.35,
@@ -1254,16 +1313,16 @@ export default function Page() {
               });
             }
 
-            // 500 score → Krishna Conscious + one sacred laddu
+            // 500 score → Krishna Conscious + one motichur laddu
             if (!e.consciousUnlocked && e.score >= 500) {
               e.consciousUnlocked = true;
               e.hasLaddu = true;
-              e.achievementFlash = 6;
+              e.achievementFlash = 4.5;
               spawnCelebrationStars(e, 60);
-              setShowConscious(true);
-              setConsciousBurst(true);
+              setShowConscious(true); // kept for game-over summary
+              setConsciousBurst(true); // toast only — then disappears
               setHasLaddu(true);
-              setTimeout(() => setConsciousBurst(false), 6000);
+              setTimeout(() => setConsciousBurst(false), 4000);
               e.floatText.push({
                 x: e.w * 0.5,
                 y: e.h * 0.32,
@@ -1274,7 +1333,7 @@ export default function Page() {
               e.floatText.push({
                 x: e.w * 0.5,
                 y: e.h * 0.38,
-                text: '+1 LADDU 🍡',
+                text: '+1 MOTICHUR LADDU',
                 color: '#fdba74',
                 life: 2.2,
               });
@@ -1306,9 +1365,9 @@ export default function Page() {
         e.putanaCooldown -= dt;
         // As speed rises, Putana appears more often
         {
-          const haste = Math.min(1, (e.fallSpeed - 85) / 220);
-          const chance = 0.01 + haste * 0.035;
-          if (!e.putana && e.caught >= 8 && e.putanaCooldown <= 0 && Math.random() < chance) {
+          const haste = Math.min(1, (e.fallSpeed - 95) / 280);
+          const chance = 0.018 + haste * 0.055;
+          if (!e.putana && e.caught >= 6 && e.putanaCooldown <= 0 && Math.random() < chance) {
             spawnPutana(e);
             setPutanaActive(true);
           }
@@ -1529,8 +1588,9 @@ export default function Page() {
     onPointerCancel: () => setSide(side, false),
   });
 
-  const pagluBig = showPaglu && (pagluBurst || (caught >= 50 && caught < 56));
-  const consciousBig = showConscious && (consciousBurst || (score >= 500 && score < 520));
+  // Badges flash briefly, then leave the HUD — permanent only on game over
+  const pagluBig = pagluBurst;
+  const consciousBig = consciousBurst;
 
   return (
     <main className="fixed inset-0 h-[100dvh] w-[100vw] overflow-hidden touch-none select-none bg-[#1a0b2e]">
@@ -1657,45 +1717,6 @@ export default function Page() {
               </p>
             </div>
 
-            <div className="flex flex-col items-center gap-1.5">
-              {caught >= 50 && (
-                <div
-                  className={`rounded-full border border-amber-300/50 bg-gradient-to-r from-amber-400/90 to-orange-500/90 px-3 py-1 text-center transition-all duration-500 ${
-                    pagluBig
-                      ? 'scale-125 px-4 py-2 shadow-[0_0_40px_rgba(251,191,36,0.85)] ring-2 ring-amber-200/80'
-                      : 'scale-100 shadow-[0_0_24px_rgba(251,191,36,0.45)]'
-                  }`}
-                >
-                  <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-stone-900/70">
-                    Badge
-                  </p>
-                  <p className="text-xs font-extrabold tracking-wide text-stone-900 sm:text-sm">
-                    🦚 Krishna Paglu
-                  </p>
-                </div>
-              )}
-              {showConscious && (
-                <div
-                  className={`rounded-full border border-emerald-300/50 bg-gradient-to-r from-emerald-300/95 to-teal-400/95 px-3 py-1 text-center transition-all duration-500 ${
-                    consciousBig
-                      ? 'scale-125 px-4 py-2 shadow-[0_0_40px_rgba(52,211,153,0.85)] ring-2 ring-emerald-100/80'
-                      : 'scale-100 shadow-[0_0_24px_rgba(52,211,153,0.45)]'
-                  }`}
-                >
-                  <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-stone-900/70">
-                    Badge
-                  </p>
-                  <p className="text-xs font-extrabold tracking-wide text-stone-900 sm:text-sm">
-                    🌿 Krishna Conscious
-                  </p>
-                </div>
-              )}
-              {hasLaddu && (
-                <div className="rounded-full border border-orange-200/40 bg-orange-400/25 px-3 py-1 text-xs font-extrabold text-orange-100 shadow-md backdrop-blur-sm">
-                  🍡 Sacred Laddu ×1
-                </div>
-              )}
-            </div>
           </div>
 
           <div className="rounded-2xl border border-white/15 bg-white/10 px-3 py-2 text-right shadow-lg backdrop-blur-md">
@@ -1760,8 +1781,10 @@ export default function Page() {
               <p className="bg-gradient-to-r from-emerald-100 via-teal-200 to-cyan-300 bg-clip-text text-3xl font-extrabold text-transparent sm:text-4xl">
                 Krishna Conscious
               </p>
-              <p className="mt-2 text-sm text-white/85">Score 500 reached — sacred laddu granted!</p>
-              <p className="mt-3 text-3xl">🍡</p>
+              <p className="mt-2 text-sm text-white/85">Score 500 — motichur laddu granted!</p>
+              <div className="mt-3 flex justify-center">
+                <MotichurLaddu size={52} />
+              </div>
             </div>
           </div>
         </div>
@@ -1819,7 +1842,7 @@ export default function Page() {
             <div className="relative mb-5 space-y-2 rounded-2xl border border-white/10 bg-black/20 p-3 text-left text-xs text-white/70 sm:text-sm">
               <p>⚡ Speed &amp; pot count rise as you score</p>
               <p>🦚 50 pots → <span className="font-bold text-amber-200">Krishna Paglu</span></p>
-              <p>🌿 500 score → <span className="font-bold text-emerald-200">Krishna Conscious</span> + 🍡 laddu</p>
+              <p>🌿 500 score → <span className="font-bold text-emerald-200">Krishna Conscious</span> + motichur laddu</p>
               <p>💀 Miss 5 in a row = game over</p>
             </div>
 
@@ -1863,23 +1886,30 @@ export default function Page() {
             <p className="mb-2 text-sm text-white/70">
               {caught} pots caught · 5 misses in a row
             </p>
-            <div className="mb-4 flex flex-wrap justify-center gap-2">
-              {caught >= 50 && (
-                <p className="inline-block rounded-full border border-amber-300/40 bg-amber-400/20 px-3 py-1 text-xs font-bold text-amber-200">
-                  🦚 Krishna Paglu
+            {(showPaglu || showConscious || hasLaddu) && (
+              <div className="mb-4 space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-white/45">
+                  Badges earned
                 </p>
-              )}
-              {showConscious && (
-                <p className="inline-block rounded-full border border-emerald-300/40 bg-emerald-400/20 px-3 py-1 text-xs font-bold text-emerald-200">
-                  🌿 Krishna Conscious
-                </p>
-              )}
-              {hasLaddu && (
-                <p className="inline-block rounded-full border border-orange-300/40 bg-orange-400/20 px-3 py-1 text-xs font-bold text-orange-100">
-                  🍡 Laddu ×1
-                </p>
-              )}
-            </div>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {showPaglu && (
+                    <p className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/40 bg-amber-400/20 px-3 py-1.5 text-xs font-bold text-amber-200">
+                      🦚 Krishna Paglu
+                    </p>
+                  )}
+                  {showConscious && (
+                    <p className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300/40 bg-emerald-400/20 px-3 py-1.5 text-xs font-bold text-emerald-200">
+                      🌿 Krishna Conscious
+                    </p>
+                  )}
+                  {hasLaddu && (
+                    <p className="inline-flex items-center gap-1.5 rounded-full border border-orange-300/40 bg-orange-400/20 px-3 py-1.5 text-xs font-bold text-orange-100">
+                      <MotichurLaddu size={18} /> Motichur Laddu ×1
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
             {best > 0 && (
               <p className="mb-5 text-xs uppercase tracking-[0.2em] text-white/50">
                 Best · {best}

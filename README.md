@@ -1,6 +1,6 @@
 # Makhan Catch — Little Krishna
 
-A high-performance canvas game in **Next.js + Tailwind CSS**. Catch falling pots of makhan in a magical Vrindavan garden.
+A mobile-friendly Next.js canvas game. Catch falling makhan pots in Vrindavan, jump for high pots, and defeat Putana with the Sudarshan Chakra.
 
 ## Run locally
 
@@ -13,29 +13,40 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Controls
 
-- **Keyboard:** ← → move · Space / ↑ jump · C / F chakra
-- **Mouse / trackpad:** click-hold left or right side of the screen
-- **Mobile:** on-screen ← → buttons · Jump · Chakra (when Putana appears)
+| Device | Move | Jump | Chakra |
+|---|---|---|---|
+| Keyboard | ← → | Space / ↑ / W | C / F (or Space while Putana is up) |
+| Mouse / trackpad | Click-hold left or right side | Jump button | Chakra button |
+| Mobile | ← → buttons | Jump button | Chakra button |
 
-## Deploy to Vercel
+## Push to GitHub (manual)
 
-1. Install / login:
+From this folder (after you create an empty repo on GitHub, e.g. `makhan-catch`):
+
+```bash
+git remote add origin https://github.com/Ambika145/makhan-catch.git
+git branch -M main
+git push -u origin main
+```
+
+Replace `makhan-catch` with whatever repo name you create under [Ambika145](https://github.com/Ambika145).
+
+## Deploy on Vercel
+
+1. Go to [vercel.com/new](https://vercel.com/new)
+2. Import your GitHub repo
+3. Framework: **Next.js** (auto-detected)
+4. Click **Deploy**
+
+Or after the repo is on GitHub:
 
 ```bash
 npx vercel login
-```
-
-2. Deploy production:
-
-```bash
 npx vercel --prod
 ```
 
-Or import this folder at [vercel.com/new](https://vercel.com/new) (Framework: Next.js).
+## Build check
 
-## Architecture
-
-- Gameplay lives in `app/page.js` (client component).
-- Mutable engine state is stored in `useRef`.
-- A single `requestAnimationFrame` loop drives physics and canvas drawing.
-- React `useState` is only for UI phases and HUD.
+```bash
+npm run build
+```

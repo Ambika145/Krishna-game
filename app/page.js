@@ -974,15 +974,6 @@ export default function Page() {
     }
   }, [phase]);
 
-  // Auto-hide Krishna Paglu badge after a few seconds (keeps a small corner mark)
-  useEffect(() => {
-    if (!showPaglu || phase !== PHASE.PLAYING) return;
-    const id = setTimeout(() => {
-      /* badge stays as compact chip via CSS class change handled by caught>=50 */
-    }, 4500);
-    return () => clearTimeout(id);
-  }, [showPaglu, phase]);
-
   const resize = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1441,7 +1432,19 @@ export default function Page() {
     e.input.chakra = true;
   };
 
-  const bindHold = (action) => ({
+  // Release movement if pointer is released anywhere (mouse/trackpad safety)
+  useEffect(() => {
+    if (phase !== PHASE.PLAYING) return undefined;
+    const release = () => clearMove();
+    window.addEventListener('pointerup', release);
+    window.addEventListener('blur', release);
+    return () => {
+      window.removeEventListener('pointerup', release);
+      window.removeEventListener('blur', release);
+    };
+  }, [phase]);
+
+  const bindHold = (side) => ({
     onPointerDown: (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
@@ -1450,16 +1453,14 @@ export default function Page() {
       } catch {
         /* ignore */
       }
-      action(true, ev);
+      setSide(side, true);
     },
     onPointerUp: (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      action(false, ev);
+      setSide(side, false);
     },
-    onPointerCancel: (ev) => {
-      action(false, ev);
-    },
+    onPointerCancel: () => setSide(side, false),
   });
 
   const pagluBig = showPaglu && (pagluBurst || (caught >= 50 && caught < 56));
@@ -1476,10 +1477,9 @@ export default function Page() {
         <>
           {/* Full-screen pointer zones — mouse, trackpad click, and finger */}
           <div
-            className="absolute inset-0 z-10 touch-none"
-            style={{ bottom: 'max(7rem, calc(env(safe-area-inset-bottom) + 6rem))' }}
+            className="absolute inset-x-0 top-0 z-10 touch-none"
+            style={{ bottom: 'max(7.5rem, calc(env(safe-area-inset-bottom) + 6.5rem))' }}
             onPointerDown={(ev) => {
-              // Ignore if pressing UI buttons (they stopPropagation)
               if (ev.target !== ev.currentTarget) return;
               ev.preventDefault();
               try {
@@ -1490,9 +1490,7 @@ export default function Page() {
               aimFromPointer(ev.clientX, true);
             }}
             onPointerMove={(ev) => {
-              if (ev.buttons === 0 && ev.pointerType === 'mouse') return;
-              if (!ev.currentTarget.hasPointerCapture?.(ev.pointerId) && ev.pointerType !== 'touch')
-                return;
+              if (ev.pointerType === 'mouse' && ev.buttons === 0) return;
               aimFromPointer(ev.clientX, true);
             }}
             onPointerUp={() => clearMove()}
@@ -1501,14 +1499,12 @@ export default function Page() {
           />
 
           {/* Mobile-first on-screen controls */}
-          <div
-            className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex items-end justify-between gap-2 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2"
-          >
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex items-end justify-between gap-2 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
             <button
               type="button"
               aria-label="Move left"
-              className="control-btn pointer-events-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-white/25 bg-white/20 text-2xl font-black text-white shadow-lg backdrop-blur-md active:scale-90 sm:h-18 sm:w-18"
-              {...bindHold((down) => setSide('left', down))}
+              className="control-btn pointer-events-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-white/25 bg-white/20 text-2xl font-black text-white shadow-lg backdrop-blur-md active:scale-90 sm:h-20 sm:w-20"
+              {...bindHold('left')}
             >
               ←
             </button>
@@ -1530,7 +1526,7 @@ export default function Page() {
                 <button
                   type="button"
                   aria-label="Throw Sudarshan Chakra"
-                  className="control-btn animate-pulse min-w-[7.5rem] rounded-full border border-amber-300/60 bg-gradient-to-r from-amber-400 to-orange-500 px-5 py-3 text-sm font-extrabold uppercase tracking-[0.12em] text-stone-900 shadow-[0_0_24px_rgba(251,191,36,0.55)] active:scale-90"
+                  className="control-btn min-w-[7.5rem] animate-pulse rounded-full border border-amber-300/60 bg-gradient-to-r from-amber-400 to-orange-500 px-5 py-3 text-sm font-extrabold uppercase tracking-[0.12em] text-stone-900 shadow-[0_0_24px_rgba(251,191,36,0.55)] active:scale-90"
                   onPointerDown={(ev) => {
                     ev.preventDefault();
                     ev.stopPropagation();
@@ -1545,8 +1541,8 @@ export default function Page() {
             <button
               type="button"
               aria-label="Move right"
-              className="control-btn pointer-events-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-white/25 bg-white/20 text-2xl font-black text-white shadow-lg backdrop-blur-md active:scale-90 sm:h-18 sm:w-18"
-              {...bindHold((down) => setSide('right', down))}
+              className="control-btn pointer-events-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-white/25 bg-white/20 text-2xl font-black text-white shadow-lg backdrop-blur-md active:scale-90 sm:h-20 sm:w-20"
+              {...bindHold('right')}
             >
               →
             </button>

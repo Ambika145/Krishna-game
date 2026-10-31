@@ -13,11 +13,15 @@ const PHASE = { MENU: 'MENU', PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER' };
 const POT_POINTS = { normal: 1, white: 3, golden: 10, cursed: 15 };
 
 const HEAT_STAGES = [
-  { id: 'calm', label: 'Calm Meadow', minD: 0, skyBoost: 0 },
-  { id: 'busy', label: 'Busy Leela', minD: 1.15, skyBoost: 0.08 },
-  { id: 'chaos', label: 'Makhan Chaos', minD: 2.4, skyBoost: 0.16 },
-  { id: 'divine', label: 'Divine Trial', minD: 3.8, skyBoost: 0.28 },
+  { id: 'calm', label: 'Calm', minD: 0, skyBoost: 0 },
+  { id: 'busy', label: 'Busy', minD: 1.15, skyBoost: 0.08 },
+  { id: 'chaos', label: 'Chaos', minD: 2.4, skyBoost: 0.16 },
+  { id: 'divine', label: 'Trial', minD: 3.8, skyBoost: 0.28 },
 ];
+
+function pushAlert(e, title, tip, color = '#fde68a') {
+  e.alert = { title, tip, color, life: 2.6 };
+}
 
 function heatStage(e) {
   const d = difficulty(e);
@@ -183,6 +187,7 @@ function createEngine(w, h) {
     event: null, // yashoda call set-piece
     eventCooldown: 22,
     heatId: 'calm',
+    alert: null, // big readable banner { title, tip, color, life }
     // Putana boss encounter
     putana: null,
     chakras: [],
@@ -304,34 +309,23 @@ function spawnMonkey(e) {
   if (e.monkey || e.pots.length === 0) return false;
   const fromLeft = Math.random() < 0.5;
   e.monkey = {
-    x: fromLeft ? -40 : e.w + 40,
-    y: e.h * 0.55,
-    vx: fromLeft ? 220 : -220,
+    x: fromLeft ? -60 : e.w + 60,
+    y: e.h * 0.58,
+    vx: fromLeft ? 145 : -145,
     facing: fromLeft ? 1 : -1,
-    state: 'run', // run | steal | flee
+    state: 'run', // run | flee
     target: null,
     bob: Math.random() * 10,
+    warn: 1.2, // pause at edge so player notices
   };
-  e.floatText.push({
-    x: e.w * 0.5,
-    y: e.h * 0.26,
-    text: 'BUTTER THIEF!',
-    color: '#fdba74',
-    life: 1.4,
-  });
+  pushAlert(e, 'MONKEY THIEF!', 'Jump near the monkey to scare him — or he steals a pot', '#fdba74');
   return true;
 }
 
 function startYashodaEvent(e) {
   if (e.event) return false;
-  e.event = { kind: 'yashoda', phase: 'warn', t: 1.4 };
-  e.floatText.push({
-    x: e.w * 0.5,
-    y: e.h * 0.28,
-    text: 'YASHODA CALLS!',
-    color: '#f9a8d4',
-    life: 1.6,
-  });
+  e.event = { kind: 'yashoda', phase: 'warn', t: 1.6 };
+  pushAlert(e, 'YASHODA CALLS!', 'Pots freeze… then many fall at once — get ready!', '#f9a8d4');
   return true;
 }
 
@@ -988,66 +982,149 @@ function drawPot(ctx, pot, t, potSprites) {
   }
 
   ctx.restore();
+
+  // Clear labels above special pots
+  if (type === 'cursed' || type === 'golden') {
+    ctx.save();
+    ctx.font = '800 12px ui-sans-serif, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+    const label = type === 'cursed' ? 'CURSED +15' : 'GOLD +10';
+    ctx.fillStyle = type === 'cursed' ? '#e9d5ff' : '#fde68a';
+    ctx.strokeText(label, x, y - size * 0.55);
+    ctx.fillText(label, x, y - size * 0.55);
+    ctx.restore();
+  }
 }
 
 function drawPowerup(ctx, p, t) {
-  const colors = {
-    slow: ['#67e8f9', '#0891b2', '⏱'],
-    magnet: ['#fbbf24', '#d97706', '◎'],
-    flute: ['#c4b5fd', '#7c3aed', '♪'],
-    aura: ['#86efac', '#16a34a', '✦'],
+  const meta = {
+    slow: { a: '#67e8f9', b: '#0891b2', label: 'SLOW' },
+    magnet: { a: '#fbbf24', b: '#d97706', label: 'MAGNET' },
+    flute: { a: '#c4b5fd', b: '#7c3aed', label: 'FLUTE' },
+    aura: { a: '#86efac', b: '#16a34a', label: 'AURA' },
   };
-  const [a, b] = colors[p.kind] || colors.slow;
+  const m = meta[p.kind] || meta.slow;
   ctx.save();
   ctx.translate(p.x, p.y + Math.sin(t * 5 + p.wobble) * 3);
-  const g = ctx.createRadialGradient(0, 0, 2, 0, 0, 22);
-  g.addColorStop(0, a);
+  const g = ctx.createRadialGradient(0, 0, 2, 0, 0, 28);
+  g.addColorStop(0, m.a);
   g.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = g;
   ctx.beginPath();
-  ctx.arc(0, 0, 22, 0, Math.PI * 2);
+  ctx.arc(0, 0, 28, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = b;
+  ctx.fillStyle = m.b;
   ctx.beginPath();
-  ctx.arc(0, 0, 11, 0, Math.PI * 2);
+  ctx.arc(0, 0, 14, 0, Math.PI * 2);
   ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
   ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.arc(-3, -3, 3, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.font = '800 11px ui-sans-serif, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.strokeText(m.label, 0, 26);
+  ctx.fillText(m.label, 0, 26);
   ctx.restore();
 }
 
-function drawMonkey(ctx, m, t) {
+function drawMonkey(ctx, m, t, player) {
+  // Line to the pot he's chasing
+  if (m.target && m.state === 'run') {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(251, 146, 60, 0.85)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 6]);
+    ctx.beginPath();
+    ctx.moveTo(m.x, m.y);
+    ctx.lineTo(m.target.x, m.target.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Highlight target pot
+    ctx.strokeStyle = 'rgba(251, 146, 60, 0.9)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(m.target.x, m.target.y, m.target.size * 0.55, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   ctx.save();
-  const bob = Math.sin(t * 14 + m.bob) * 3;
+  const bob = Math.sin(t * 10 + m.bob) * 4;
   ctx.translate(m.x, m.y + bob);
-  ctx.scale(m.facing, 1);
-  // body
-  ctx.fillStyle = '#92400e';
-  ctx.beginPath();
-  ctx.ellipse(0, 0, 16, 12, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // head
-  ctx.beginPath();
-  ctx.arc(10, -10, 10, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#fbbf24';
-  ctx.beginPath();
-  ctx.ellipse(14, -8, 5, 4, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // tail
-  ctx.strokeStyle = '#78350f';
+
+  // Big attention ring
+  ctx.strokeStyle = 'rgba(251, 191, 36, 0.75)';
   ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.moveTo(-14, 0);
-  ctx.quadraticCurveTo(-28, -16 + bob, -22, -28);
+  ctx.arc(0, 0, 42 + Math.sin(t * 6) * 4, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.scale(m.facing, 1);
+  // body — much larger
+  ctx.fillStyle = '#78350f';
+  ctx.beginPath();
+  ctx.ellipse(0, 4, 28, 22, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#a16207';
+  ctx.beginPath();
+  ctx.ellipse(4, 6, 16, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // head
+  ctx.fillStyle = '#92400e';
+  ctx.beginPath();
+  ctx.arc(18, -18, 18, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fcd34d';
+  ctx.beginPath();
+  ctx.ellipse(24, -14, 9, 7, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // ears
+  ctx.fillStyle = '#78350f';
+  ctx.beginPath();
+  ctx.arc(8, -30, 7, 0, Math.PI * 2);
+  ctx.arc(28, -30, 7, 0, Math.PI * 2);
+  ctx.fill();
+  // tail
+  ctx.strokeStyle = '#451a03';
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-24, 4);
+  ctx.quadraticCurveTo(-48, -20 + bob, -36, -40);
   ctx.stroke();
   // eyes
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(22, -20, 4, 0, Math.PI * 2);
+  ctx.fill();
   ctx.fillStyle = '#111';
   ctx.beginPath();
-  ctx.arc(12, -12, 1.6, 0, Math.PI * 2);
+  ctx.arc(23, -20, 2, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
+
+  // Always-readable name tag (not mirrored)
+  ctx.save();
+  ctx.font = '800 14px ui-sans-serif, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+  ctx.fillStyle = '#fdba74';
+  ctx.strokeText('MONKEY THIEF', m.x, m.y - 58);
+  ctx.fillText('MONKEY THIEF', m.x, m.y - 58);
+  const near =
+    player && Math.abs(player.x - m.x) < player.w * 0.95 && Math.abs(player.y - m.y) < player.h;
+  ctx.fillStyle = near ? '#86efac' : '#fff7ed';
+  ctx.font = '700 12px ui-sans-serif, system-ui, sans-serif';
+  const tip = m.state === 'flee' ? 'Running away!' : near ? 'JUMP now!' : 'Jump near him!';
+  ctx.strokeText(tip, m.x, m.y - 40);
+  ctx.fillText(tip, m.x, m.y - 40);
   ctx.restore();
 }
 
@@ -1217,10 +1294,16 @@ function drawParticles(ctx, particles) {
 
 function drawFloatText(ctx, items) {
   for (const f of items) {
-    ctx.globalAlpha = Math.max(0, f.life);
-    ctx.fillStyle = f.color;
-    ctx.font = '800 18px ui-sans-serif, system-ui, sans-serif';
+    const big = f.big || f.text.length > 12;
+    ctx.globalAlpha = Math.min(1, Math.max(0, f.life));
+    ctx.font = big
+      ? '800 22px ui-sans-serif, system-ui, sans-serif'
+      : '800 17px ui-sans-serif, system-ui, sans-serif';
     ctx.textAlign = 'center';
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+    ctx.strokeText(f.text, f.x, f.y);
+    ctx.fillStyle = f.color;
     ctx.fillText(f.text, f.x, f.y);
   }
   ctx.globalAlpha = 1;
@@ -1281,10 +1364,11 @@ export default function Page() {
   const [putanaActive, setPutanaActive] = useState(false);
   const [combo, setCombo] = useState(0);
   const [comboMult, setComboMult] = useState(1);
-  const [heatLabel, setHeatLabel] = useState('Calm Meadow');
+  const [heatLabel, setHeatLabel] = useState('Calm');
   const [fluteCharges, setFluteCharges] = useState(0);
   const [buffs, setBuffs] = useState({ slow: 0, magnet: 0, aura: 0 });
   const [bestCombo, setBestCombo] = useState(0);
+  const [alertBanner, setAlertBanner] = useState(null);
   const [assetsReady, setAssetsReady] = useState(false);
   const pagluTimerRef = useRef(null);
   const consciousTimerRef = useRef(null);
@@ -1448,6 +1532,8 @@ export default function Page() {
     setHeatLabel('Calm Meadow');
     setFluteCharges(0);
     setBuffs({ slow: 0, magnet: 0, aura: 0 });
+    setAlertBanner(null);
+    setHeatLabel('Calm');
     setPhase(PHASE.PLAYING);
     const mantra = mantraRef.current;
     if (mantra) {
@@ -1620,13 +1706,17 @@ export default function Page() {
         if (heat.id !== e.heatId) {
           e.heatId = heat.id;
           setHeatLabel(heat.label);
-          e.floatText.push({
-            x: e.w * 0.5,
-            y: e.h * 0.2,
-            text: heat.label.toUpperCase(),
-            color: heat.id === 'divine' ? '#c4b5fd' : heat.id === 'chaos' ? '#fca5a5' : '#fdba74',
-            life: 1.8,
-          });
+          if (heat.id !== 'calm') {
+            pushAlert(
+              e,
+              `${heat.label.toUpperCase()}!`,
+              heat.id === 'divine'
+                ? 'Hardest stage — watch cursed pots & Putana'
+                : heat.id === 'chaos'
+                  ? 'Faster pots — keep your combo alive'
+                  : 'More pots incoming'
+            );
+          }
         }
 
         // Yashoda call set-piece
@@ -1643,6 +1733,7 @@ export default function Page() {
             e.event.phase = 'dump';
             e.event.t = 0.05;
             e.event.dumps = 5;
+            pushAlert(e, 'POTS FALLING!', 'Catch as many as you can', '#f9a8d4');
           } else if (e.event.phase === 'dump') {
             if (e.event.t <= 0 && e.event.dumps > 0) {
               spawnPot(e, { type: Math.random() < 0.25 ? 'cursed' : 'normal' });
@@ -1674,21 +1765,26 @@ export default function Page() {
           }
         }
 
-        // Monkey butter thief
+        // Monkey butter thief — slower, telegraphed, easier to read
         e.monkeyCooldown -= dt;
-        if (!e.monkey && e.caught >= 8 && e.monkeyCooldown <= 0 && e.pots.length > 0 && Math.random() < 0.012) {
-          if (spawnMonkey(e)) e.monkeyCooldown = 14 + Math.random() * 10;
+        if (!e.monkey && e.caught >= 10 && e.monkeyCooldown <= 0 && e.pots.length > 0 && Math.random() < 0.009) {
+          if (spawnMonkey(e)) e.monkeyCooldown = 18 + Math.random() * 12;
         }
         if (e.monkey) {
           const m = e.monkey;
-          m.x += m.vx * dt;
-          m.y = e.h * 0.52 + Math.sin(e.time * 10 + m.bob) * 6;
-          // Pick nearest pot once
+          m.y = e.h * 0.58 + Math.sin(e.time * 8 + m.bob) * 5;
+          if (m.warn > 0) {
+            m.warn -= dt;
+            const edge = m.facing > 0 ? 40 : e.w - 40;
+            m.x += (edge - m.x) * Math.min(1, 4 * dt);
+          } else {
+            m.x += m.vx * dt;
+          }
           if (!m.target && e.pots.length) {
             let best = e.pots[0];
             let bestD = Infinity;
             for (const pot of e.pots) {
-              const dd = Math.abs(pot.x - m.x) + Math.abs(pot.y - m.y);
+              const dd = Math.abs(pot.x - m.x);
               if (dd < bestD) {
                 bestD = dd;
                 best = pot;
@@ -1696,51 +1792,69 @@ export default function Page() {
             }
             m.target = best;
           }
-          if (m.state === 'run' && m.target && e.pots.includes(m.target)) {
+          if (m.target && !e.pots.includes(m.target) && e.pots.length) m.target = e.pots[0];
+
+          if (m.warn <= 0 && m.state === 'run' && m.target && e.pots.includes(m.target)) {
             const dx = m.target.x - m.x;
-            m.vx = Math.sign(dx || m.facing) * 240;
+            m.vx = Math.sign(dx || m.facing) * 150;
             m.facing = Math.sign(m.vx) || m.facing;
-            if (Math.abs(dx) < 28 && Math.abs(m.target.y - m.y) < 70) {
-              // Steal unless Krishna jump-scares nearby
-              const nearPlayer =
-                Math.abs(e.player.x - m.x) < e.player.w * 0.7 && !e.player.onGround;
-              if (nearPlayer) {
-                m.state = 'flee';
-                m.vx = (m.x < e.player.x ? -1 : 1) * 320;
-                e.score += 5;
-                addCombo(e);
-                setScore(e.score);
-                setCombo(e.combo);
+            const nearX = Math.abs(e.player.x - m.x) < e.player.w * 1.05;
+            const scared = nearX && !e.player.onGround;
+            if (scared) {
+              m.state = 'flee';
+              m.target = null;
+              m.vx = (m.x < e.w * 0.5 ? -1 : 1) * 340;
+              m.facing = Math.sign(m.vx);
+              e.score += 5;
+              addCombo(e);
+              setScore(e.score);
+              setCombo(e.combo);
+              pushAlert(e, 'MONKEY SCARED!', '+5 bonus — nice jump', '#86efac');
+              e.floatText.push({
+                x: m.x,
+                y: m.y - 30,
+                text: 'SCARED! +5',
+                color: '#86efac',
+                life: 1.4,
+                big: true,
+              });
+            } else if (Math.abs(dx) < 36 && Math.abs(m.target.y - m.y) < 90) {
+              const idx = e.pots.indexOf(m.target);
+              if (idx >= 0) {
+                burst(e, m.target.x, m.target.y, '#fdba74', 14);
+                e.pots.splice(idx, 1);
+                pushAlert(e, 'POT STOLEN!', 'Next time jump near the monkey', '#fb923c');
                 e.floatText.push({
                   x: m.x,
-                  y: m.y - 20,
-                  text: 'SCARED! +5',
-                  color: '#86efac',
-                  life: 1.2,
+                  y: m.y - 30,
+                  text: 'STOLEN!',
+                  color: '#fb923c',
+                  life: 1.4,
+                  big: true,
                 });
-              } else {
-                const idx = e.pots.indexOf(m.target);
-                if (idx >= 0) {
-                  burst(e, m.target.x, m.target.y, '#fdba74', 10);
-                  e.pots.splice(idx, 1);
-                  e.floatText.push({
-                    x: m.x,
-                    y: m.y - 20,
-                    text: 'STOLEN!',
-                    color: '#fb923c',
-                    life: 1.2,
-                  });
-                }
-                m.state = 'flee';
-                m.vx = m.facing * 300;
               }
+              m.state = 'flee';
+              m.target = null;
+              m.vx = m.facing * 300;
             }
           }
-          if (m.state === 'flee' || m.x < -80 || m.x > e.w + 80) {
-            if (m.x < -80 || m.x > e.w + 80) e.monkey = null;
-            else if (m.state === 'flee') {
-              /* keep fleeing */
-            }
+          if (m.x < -100 || m.x > e.w + 100) e.monkey = null;
+        }
+
+        // Sync big alert banner to HUD (once per alert, not every frame)
+        if (e.alert) {
+          if (!e.alert._shown) {
+            e.alert._shown = true;
+            setAlertBanner({
+              title: e.alert.title,
+              tip: e.alert.tip,
+              color: e.alert.color,
+            });
+          }
+          e.alert.life -= dt;
+          if (e.alert.life <= 0) {
+            e.alert = null;
+            setAlertBanner(null);
           }
         }
 
@@ -1870,17 +1984,20 @@ export default function Page() {
               setFluteCharges(e.fluteCharges);
             }
             const labels = {
-              slow: 'SLOW-MO',
-              magnet: 'MAGNET',
-              aura: 'DIVINE AURA',
-              flute: 'FLUTE +1',
+              slow: ['SLOW-MO!', 'Pots fall slower'],
+              magnet: ['MAGNET!', 'Pots pull toward you'],
+              aura: ['BIG CATCH!', 'Wider catch range'],
+              flute: ['FLUTE +1', 'Press Flute / E to pull a pot'],
             };
+            const L = labels[p.kind] || ['BLESSING!', ''];
+            pushAlert(e, L[0], L[1], '#a5f3fc');
             e.floatText.push({
               x: p.x,
               y: p.y - 12,
-              text: labels[p.kind] || 'BLESSING',
+              text: L[0],
               color: '#a5f3fc',
               life: 1.2,
+              big: true,
             });
             burst(e, p.x, p.y, '#67e8f9', 12);
             e.powerups.splice(i, 1);
@@ -2061,7 +2178,7 @@ export default function Page() {
       drawGarden(ctx, e, e.time, calfSpritesRef.current);
       for (const pot of e.pots) drawPot(ctx, pot, e.time, potSpritesRef.current);
       for (const p of e.powerups || []) drawPowerup(ctx, p, e.time);
-      if (e.monkey) drawMonkey(ctx, e.monkey, e.time);
+      if (e.monkey) drawMonkey(ctx, e.monkey, e.time, e.player);
       if (e.putana) drawPutana(ctx, e.putana, e.time, putanaSpriteRef.current);
       for (const c of e.chakras) drawSudarshan(ctx, c);
       drawKrishna(ctx, e.player, e.time, spriteRef.current);
@@ -2295,16 +2412,16 @@ export default function Page() {
           <div className="flex flex-col items-center gap-2">
             <div
               className={`rounded-full border px-3 py-1 text-center text-[10px] font-extrabold uppercase tracking-[0.18em] shadow-md backdrop-blur-md ${
-                heatLabel.includes('Divine')
+                heatLabel === 'Trial'
                   ? 'border-violet-300/50 bg-violet-500/30 text-violet-100'
-                  : heatLabel.includes('Chaos')
+                  : heatLabel === 'Chaos'
                     ? 'border-rose-300/50 bg-rose-500/30 text-rose-100'
-                    : heatLabel.includes('Busy')
+                    : heatLabel === 'Busy'
                       ? 'border-orange-300/50 bg-orange-500/25 text-orange-100'
                       : 'border-white/20 bg-white/10 text-white/70'
               }`}
             >
-              {heatLabel}
+              Heat · {heatLabel}
             </div>
 
             <div className="rounded-2xl border border-white/20 bg-white/10 px-3 py-2 shadow-lg backdrop-blur-md">
@@ -2361,6 +2478,26 @@ export default function Page() {
           <div className="rounded-2xl border border-white/15 bg-white/10 px-3 py-2 text-right shadow-lg backdrop-blur-md">
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/60">Best</p>
             <p className="text-lg font-bold text-white/90">{best}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Clear event banner — what just happened */}
+      {phase === PHASE.PLAYING && alertBanner && (
+        <div className="pointer-events-none absolute inset-x-0 top-[18%] z-40 flex justify-center px-4">
+          <div
+            className="animate-fade-up max-w-md rounded-2xl border-2 px-5 py-3 text-center shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur-md"
+            style={{
+              borderColor: alertBanner.color,
+              background: 'rgba(0,0,0,0.55)',
+            }}
+          >
+            <p className="text-lg font-black tracking-wide sm:text-xl" style={{ color: alertBanner.color }}>
+              {alertBanner.title}
+            </p>
+            {alertBanner.tip && (
+              <p className="mt-1 text-xs font-semibold text-white/85 sm:text-sm">{alertBanner.tip}</p>
+            )}
           </div>
         </div>
       )}
@@ -2479,11 +2616,11 @@ export default function Page() {
             </div>
 
             <div className="relative mb-5 space-y-1.5 rounded-2xl border border-white/10 bg-black/20 p-3 text-left text-xs text-white/70 sm:text-sm">
-              <p>🔥 Heat rises: Calm → Busy → Chaos → <span className="font-bold text-violet-200">Divine Trial</span></p>
-              <p>✨ Combos multiply score (up to ×5) — miss resets it</p>
-              <p>🟣 Cursed pots +15, but a miss costs <span className="font-bold text-fuchsia-200">2 streak</span></p>
-              <p>🐒 Jump-scare butter thieves · ♪ Flute charm (E) · Yashoda freeze-dump</p>
-              <p>🦚 50 pots Paglu · 🌿 500 Conscious + motichur · 💀 5 misses = over</p>
+              <p>✨ Keep catching for combo ×2…×5</p>
+              <p>🟣 Purple <span className="font-bold text-fuchsia-200">CURSED</span> pot = +15, miss hurts more</p>
+              <p>🐒 Big monkey runs in — <span className="font-bold text-amber-200">jump near him</span> to scare</p>
+              <p>💎 Catch glowing orbs for Slow / Magnet / Flute</p>
+              <p>💀 Miss 5 in a row = game over</p>
             </div>
 
             <button

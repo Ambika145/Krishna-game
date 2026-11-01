@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
- * Makhan Catch — Little Krishna in a magical Vrindavan garden.
+ * Makhan Chor — Little Krishna in a magical Vrindavan garden.
  * Architecture: mutable engine in useRef + single rAF loop.
  * React state is reserved for MENU | PLAYING | GAMEOVER + HUD.
  */
@@ -1364,7 +1364,6 @@ export default function Page() {
   const [putanaActive, setPutanaActive] = useState(false);
   const [combo, setCombo] = useState(0);
   const [comboMult, setComboMult] = useState(1);
-  const [heatLabel, setHeatLabel] = useState('Calm');
   const [fluteCharges, setFluteCharges] = useState(0);
   const [buffs, setBuffs] = useState({ slow: 0, magnet: 0, aura: 0 });
   const [bestCombo, setBestCombo] = useState(0);
@@ -1444,7 +1443,7 @@ export default function Page() {
       setAssetsReady(true);
     })();
 
-    const mantra = new Audio('/audio/hare-krishna.mp3');
+    const mantra = new Audio('/audio/game-music.mp3');
     mantra.loop = true;
     mantra.preload = 'auto';
     mantra.volume = 0.55;
@@ -1529,11 +1528,9 @@ export default function Page() {
     setPutanaActive(false);
     setCombo(0);
     setComboMult(1);
-    setHeatLabel('Calm Meadow');
     setFluteCharges(0);
     setBuffs({ slow: 0, magnet: 0, aura: 0 });
     setAlertBanner(null);
-    setHeatLabel('Calm');
     setPhase(PHASE.PLAYING);
     const mantra = mantraRef.current;
     if (mantra) {
@@ -1705,18 +1702,6 @@ export default function Page() {
         const heat = heatStage(e);
         if (heat.id !== e.heatId) {
           e.heatId = heat.id;
-          setHeatLabel(heat.label);
-          if (heat.id !== 'calm') {
-            pushAlert(
-              e,
-              `${heat.label.toUpperCase()}!`,
-              heat.id === 'divine'
-                ? 'Hardest stage — watch cursed pots & Putana'
-                : heat.id === 'chaos'
-                  ? 'Faster pots — keep your combo alive'
-                  : 'More pots incoming'
-            );
-          }
         }
 
         // Yashoda call set-piece
@@ -2287,11 +2272,11 @@ export default function Page() {
   const consciousBig = consciousBurst;
 
   return (
-    <main className="fixed inset-0 h-[100dvh] w-[100vw] overflow-hidden touch-none select-none bg-[#1a0b2e]">
+    <main className="fixed inset-0 h-[100dvh] w-[100vw] overflow-hidden touch-none select-none bg-[#070d14]">
       <canvas
         ref={canvasRef}
         className="block h-full w-full touch-none"
-        aria-label="Makhan Catch — Little Krishna in Vrindavan"
+        aria-label="Makhan Chor — Little Krishna in Vrindavan"
       />
 
       {phase === PHASE.PLAYING && (
@@ -2410,20 +2395,6 @@ export default function Page() {
           </div>
 
           <div className="flex flex-col items-center gap-2">
-            <div
-              className={`rounded-full border px-3 py-1 text-center text-[10px] font-extrabold uppercase tracking-[0.18em] shadow-md backdrop-blur-md ${
-                heatLabel === 'Trial'
-                  ? 'border-violet-300/50 bg-violet-500/30 text-violet-100'
-                  : heatLabel === 'Chaos'
-                    ? 'border-rose-300/50 bg-rose-500/30 text-rose-100'
-                    : heatLabel === 'Busy'
-                      ? 'border-orange-300/50 bg-orange-500/25 text-orange-100'
-                      : 'border-white/20 bg-white/10 text-white/70'
-              }`}
-            >
-              Heat · {heatLabel}
-            </div>
-
             <div className="rounded-2xl border border-white/20 bg-white/10 px-3 py-2 shadow-lg backdrop-blur-md">
               <p className="mb-1 text-center text-[9px] font-bold uppercase tracking-[0.18em] text-white/55">
                 Miss streak
@@ -2566,146 +2537,151 @@ export default function Page() {
         </div>
       )}
 
-      {/* MENU — game title card */}
+      {/* MENU — attract / title screen */}
       {phase === PHASE.MENU && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-gradient-to-b from-[#1a0b2e]/30 via-[#1a0b2e]/55 to-[#1a0b2e]/80 px-4 backdrop-blur-[6px]">
-          <div className="animate-fade-up relative w-full max-w-lg overflow-hidden rounded-[28px] border border-amber-200/25 bg-gradient-to-b from-white/18 via-white/8 to-amber-950/30 p-6 text-center shadow-[0_30px_80px_rgba(0,0,0,0.55)] backdrop-blur-xl sm:p-8">
-            <div className="pointer-events-none absolute -left-10 -top-10 h-40 w-40 rounded-full bg-amber-400/20 blur-3xl" />
-            <div className="pointer-events-none absolute -bottom-12 -right-8 h-44 w-44 rounded-full bg-fuchsia-500/15 blur-3xl" />
+        <div className="title-screen absolute inset-0 z-30 overflow-hidden">
+          {/* cinematic wash — keeps world visible, frames the brand */}
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_28%,rgba(61,184,160,0.14),transparent_52%),linear-gradient(180deg,rgba(7,13,20,0.2)_0%,rgba(7,13,20,0.55)_42%,rgba(7,13,20,0.92)_100%)]" />
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/50 to-transparent" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t from-black/70 to-transparent" />
 
-            <p className="relative mb-3 inline-flex items-center gap-2 rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.28em] text-amber-200">
-              Magical Vrindavan
-            </p>
+          <div className="relative flex h-full flex-col items-center px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))]">
+            <div className="title-delay-1 flex flex-1 flex-col items-center justify-center">
+              {/* hero */}
+              <div className="animate-soft-float relative mb-3 h-[8.25rem] w-[8.25rem] sm:mb-5 sm:h-48 sm:w-48">
+                <div className="hero-halo absolute inset-[-18%] rounded-full bg-[radial-gradient(circle,rgba(232,197,106,0.34)_0%,rgba(61,184,160,0.08)_42%,transparent_70%)]" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/krishna-sprite.png?v=2"
+                  alt="Little Krishna"
+                  className="relative z-10 h-full w-full object-contain drop-shadow-[0_22px_40px_rgba(0,0,0,0.55)]"
+                  draggable={false}
+                />
+              </div>
 
-            <div className="relative mx-auto mb-2 flex h-40 w-40 items-center justify-center sm:h-44 sm:w-44">
-              <div className="absolute inset-0 rounded-full bg-gradient-to-b from-amber-300/25 to-orange-500/10 blur-md" />
-              <div className="absolute inset-2 rounded-full border border-white/20 bg-white/5" />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/krishna-sprite.png?v=2"
-                alt="Little Krishna"
-                className="relative z-10 h-[88%] w-[88%] object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.45)]"
-                draggable={false}
-              />
-            </div>
+              {/* brand lockup */}
+              <div className="title-delay-2 flex flex-col items-center">
+                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.55em] text-[#3db8a0] sm:text-[11px]">
+                  Vrindavan
+                </p>
 
-            <h1 className="relative mb-1 bg-gradient-to-r from-amber-100 via-yellow-300 to-orange-400 bg-clip-text text-5xl font-black tracking-wide text-transparent sm:text-6xl">
-              Makhan Catch
-            </h1>
-            <p className="relative mb-5 text-sm text-white/70">
-              Catch · Jump · Defeat Putana
-            </p>
-
-            <div className="relative mb-5 grid grid-cols-2 gap-2 text-left sm:grid-cols-4">
-              {[
-                { img: '/pots/pot-1.png?v=2', label: 'Clay', pts: '+1' },
-                { img: '/pots/pot-1-white.png?v=2', label: 'White', pts: '+3' },
-                { img: '/pots/pot-1-gold.png?v=2', label: 'Golden', pts: '+10' },
-                { img: '/boss/putana.png?v=1', label: 'Putana', pts: 'Chakra' },
-              ].map((card) => (
-                <div
-                  key={card.label}
-                  className="rounded-2xl border border-white/15 bg-black/25 p-2.5 text-center backdrop-blur-sm"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={card.img} alt="" className="mx-auto mb-1 h-10 w-10 object-contain" />
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-white/55">{card.label}</p>
-                  <p className="text-xs font-extrabold text-amber-200">{card.pts}</p>
+                <div className="ornament-rule mb-3 flex w-48 items-center gap-3 sm:w-64">
+                  <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[#e8c56a]/70" />
+                  <span className="h-1.5 w-1.5 rotate-45 bg-[#e8c56a]" />
+                  <span className="h-px flex-1 bg-gradient-to-l from-transparent to-[#e8c56a]/70" />
                 </div>
-              ))}
-            </div>
 
-            <div className="relative mb-5 space-y-1.5 rounded-2xl border border-white/10 bg-black/20 p-3 text-left text-xs text-white/70 sm:text-sm">
-              <p>✨ Keep catching for combo ×2…×5</p>
-              <p>🟣 Purple <span className="font-bold text-fuchsia-200">CURSED</span> pot = +15, miss hurts more</p>
-              <p>🐒 Big monkey runs in — <span className="font-bold text-amber-200">jump near him</span> to scare</p>
-              <p>💎 Catch glowing orbs for Slow / Magnet / Flute</p>
-              <p>💀 Miss 5 in a row = game over</p>
-            </div>
+                <h1 className="title-mark font-display text-center text-[2.85rem] font-semibold leading-[0.92] tracking-[0.04em] text-[#f4edd8] sm:text-7xl">
+                  <span className="block">MAKHAN</span>
+                  <span className="mt-1 block text-[#e8c56a]">CHOR</span>
+                </h1>
 
-            <button
-              type="button"
-              onClick={startGame}
-              className="relative w-full rounded-2xl bg-gradient-to-r from-amber-300 via-yellow-400 to-orange-400 px-6 py-4 text-base font-black uppercase tracking-[0.2em] text-stone-900 shadow-[0_14px_40px_rgba(251,191,36,0.45)] transition hover:scale-[1.03] active:scale-95"
-            >
-              ▶ Play Now
-            </button>
+                <div className="ornament-rule mt-3 flex w-48 items-center gap-3 sm:w-64">
+                  <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[#e8c56a]/70" />
+                  <span className="h-1.5 w-1.5 rotate-45 bg-[#e8c56a]" />
+                  <span className="h-px flex-1 bg-gradient-to-l from-transparent to-[#e8c56a]/70" />
+                </div>
+              </div>
 
-            {best > 0 && (
-              <p className="relative mt-4 text-xs uppercase tracking-[0.22em] text-white/50">
-                Best · {best}
+              <p className="title-delay-3 mt-5 max-w-[16.5rem] text-center text-[13px] font-medium leading-relaxed tracking-wide text-[#b7c5d1]/85 sm:mt-6 sm:max-w-sm sm:text-base">
+                Steal the falling makhan before it spills.
               </p>
-            )}
+            </div>
+
+            {/* action dock */}
+            <div className="title-delay-4 flex w-full max-w-sm flex-col items-center gap-4 pb-1">
+              <button
+                type="button"
+                onClick={startGame}
+                className="play-btn relative w-full rounded-sm border border-[#ffe29a]/35 bg-[#e8c56a] px-8 py-3.5 text-[13px] font-extrabold uppercase tracking-[0.32em] text-[#070d14] transition hover:bg-[#ffe29a] sm:py-4 sm:text-sm"
+              >
+                Play
+              </button>
+
+              <div className="title-delay-5 min-h-5">
+                {best > 0 ? (
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.38em] text-white/35">
+                    High score&nbsp;&nbsp;{best}
+                  </p>
+                ) : (
+                  <p className="text-[10px] font-medium uppercase tracking-[0.28em] text-white/25">
+                    Tap play to begin
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
 
       {/* GAME OVER */}
       {phase === PHASE.GAMEOVER && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#1a0b2e]/45 px-5 backdrop-blur-md">
-          <div className="animate-fade-up w-full max-w-md rounded-3xl border border-white/25 bg-gradient-to-br from-white/20 to-white/5 p-8 text-center shadow-[0_25px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/krishna-sprite.png?v=2"
-              alt=""
-              className="mx-auto mb-3 h-24 w-24 object-contain opacity-90"
-              draggable={false}
-            />
-            <p className="mb-2 text-xs font-bold uppercase tracking-[0.35em] text-rose-300">
-              Oh dear
-            </p>
-            <h2 className="mb-2 bg-gradient-to-r from-amber-100 via-yellow-300 to-orange-400 bg-clip-text text-3xl font-extrabold tracking-wide text-transparent sm:text-4xl">
-              Makhan Spilled
-            </h2>
-            <p className="mb-1 bg-gradient-to-r from-amber-200 to-yellow-400 bg-clip-text text-6xl font-extrabold text-transparent">
-              {score}
-            </p>
-            <p className="mb-2 text-sm text-white/70">
-              {caught} pots · best combo {Math.max(bestCombo, combo)} · 5 misses in a row
-            </p>
-            {(showPaglu || showConscious || hasLaddu) && (
-              <div className="mb-4 space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-white/45">
-                  Badges earned
-                </p>
-                <div className="flex flex-wrap justify-center gap-2">
+        <div className="absolute inset-0 z-30 overflow-hidden">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_30%,rgba(61,184,160,0.1),transparent_50%),linear-gradient(180deg,rgba(7,13,20,0.45)_0%,rgba(7,13,20,0.82)_100%)]" />
+          <div className="relative flex h-full flex-col items-center justify-center px-6">
+            <div className="title-delay-1 w-full max-w-sm text-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/krishna-sprite.png?v=2"
+                alt=""
+                className="mx-auto mb-4 h-[4.5rem] w-[4.5rem] object-contain opacity-90 sm:h-24 sm:w-24"
+                draggable={false}
+              />
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.45em] text-[#3db8a0]">
+                Run over
+              </p>
+              <h2 className="font-display mb-5 text-3xl font-semibold tracking-[0.06em] text-[#f4edd8] sm:text-4xl">
+                MAKHAN SPILLED
+              </h2>
+
+              <p className="font-display text-6xl font-semibold tracking-wide text-[#e8c56a] sm:text-7xl">
+                {score}
+              </p>
+              <p className="mt-2 mb-5 text-xs font-medium uppercase tracking-[0.2em] text-white/45">
+                {caught} pots · combo {Math.max(bestCombo, combo)}
+              </p>
+
+              {(showPaglu || showConscious || hasLaddu) && (
+                <div className="mb-5 flex flex-wrap justify-center gap-2">
                   {showPaglu && (
-                    <p className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/40 bg-amber-400/20 px-3 py-1.5 text-xs font-bold text-amber-200">
-                      🦚 Krishna Paglu
+                    <p className="border border-[#e8c56a]/30 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[#e8c56a]">
+                      Krishna Paglu
                     </p>
                   )}
                   {showConscious && (
-                    <p className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300/40 bg-emerald-400/20 px-3 py-1.5 text-xs font-bold text-emerald-200">
-                      🌿 Krishna Conscious
+                    <p className="border border-[#3db8a0]/35 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[#3db8a0]">
+                      Krishna Conscious
                     </p>
                   )}
                   {hasLaddu && (
-                    <p className="inline-flex items-center gap-1.5 rounded-full border border-orange-300/40 bg-orange-400/20 px-3 py-1.5 text-xs font-bold text-orange-100">
-                      <MotichurLaddu size={18} /> Motichur Laddu ×1
+                    <p className="inline-flex items-center gap-1.5 border border-orange-300/35 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-orange-100">
+                      <MotichurLaddu size={14} /> Motichur
                     </p>
                   )}
                 </div>
-              </div>
-            )}
-            {best > 0 && (
-              <p className="mb-5 text-xs uppercase tracking-[0.2em] text-white/50">
-                Best · {best}
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={startGame}
-              className="mb-3 w-full rounded-2xl bg-gradient-to-r from-amber-300 via-yellow-400 to-orange-400 px-6 py-4 text-base font-black uppercase tracking-[0.18em] text-stone-900 shadow-[0_12px_30px_rgba(251,191,36,0.4)] transition hover:scale-[1.03] active:scale-95"
-            >
-              ▶ Play Again
-            </button>
-            <button
-              type="button"
-              onClick={() => setPhase(PHASE.MENU)}
-              className="w-full rounded-2xl border border-white/20 bg-white/10 px-6 py-3 text-sm font-bold uppercase tracking-[0.12em] text-white/85 transition hover:scale-[1.02] hover:bg-white/15 active:scale-95"
-            >
-              Menu
-            </button>
+              )}
+
+              {best > 0 && (
+                <p className="mb-6 text-[10px] font-semibold uppercase tracking-[0.32em] text-white/30">
+                  High score · {best}
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={startGame}
+                className="play-btn mb-3 w-full rounded-sm border border-[#ffe29a]/35 bg-[#e8c56a] px-8 py-3.5 text-[13px] font-extrabold uppercase tracking-[0.28em] text-[#070d14] transition hover:bg-[#ffe29a]"
+              >
+                Play Again
+              </button>
+              <button
+                type="button"
+                onClick={() => setPhase(PHASE.MENU)}
+                className="w-full border border-white/15 bg-transparent px-8 py-3 text-[11px] font-bold uppercase tracking-[0.28em] text-white/70 transition hover:border-white/30 hover:text-white"
+              >
+                Title
+              </button>
+            </div>
           </div>
         </div>
       )}
